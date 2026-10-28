@@ -4,7 +4,7 @@
 
 **多平台内容解析 · 下载 · 归档**
 
-微信公众号 / 视频号 / 抖音 / 快手 / 小红书 / 哔哩哔哩
+微信公众号 / 视频号 / 抖音 / 快手 / 小红书 / 哔哩哔哩 / 微博 / 支付宝
 
 [![Python](https://img.shields.io/badge/Python-3.10+-0f766e?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.x-0f2233?style=flat-square&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
@@ -39,9 +39,9 @@ Parse Tools 是一款本地优先的**多平台内容工具箱**：粘贴链接�
 
 ### 微信公众号
 - 多账号池与轮换调度
-- 历史文章 / 增量采集
-- 离线 HTML · Markdown · PDF
-- 标准 RSS 2.0 订阅
+- 两类内容：**文章**（长文）与 **图文**（贴图/小绿书）
+- 图文可发 **Live 实况**（静图 + mp4）
+- 离线 HTML · Markdown · PDF · RSS 2.0
 
 ### 视频号
 - 分享链接解析下载
@@ -49,16 +49,20 @@ Parse Tools 是一款本地优先的**多平台内容工具箱**：粘贴链接�
 - MITM 注入采集（可选）
 
 ### 抖音
-- 无水印视频 / 图集 / Live
+- 无水印视频 / 图集 / **实况 Live 图**
 - 主页、喜欢、合集批量
 - 评论抓取与直播解析
 
 </td>
 <td width="50%" valign="top">
 
-### 快手 · 小红书 · B 站
+### 快手 · 小红书 · B 站 · 微博 · 支付宝
 - 单条 / 批量无水印下载
-- 断点续传与重试
+- 小红书 / 抖音图集 **Live 实况 mp4**
+- 快手图集保留 WebP，并尝试实况 mp4 + BGM
+- 公众号「贴图/小绿书」**Live 实况短视频**
+- 微博单条图文 / 视频（Cookie）
+- 支付宝生活号+ 图文 / 视频（短链，无需 Cookie）
 - B 站多分 P、弹幕 / 字幕
 
 ### 转码与系统
@@ -115,7 +119,7 @@ parse-tools/
 ├── app.py / app_mp.py / main.py   # 启动入口
 ├── parse_tools/                   # 业务包
 │   ├── core/                      # 应用工厂 · TaskStore · 配置
-│   ├── platforms/                 # 六平台适配
+│   ├── platforms/                 # 八平台适配（含微博 / 支付宝）
 │   ├── services/                  # 代理 · 转码 · 更新
 │   └── frontend/                  # Web UI
 ├── ops/                           # 运维与附属
@@ -167,8 +171,10 @@ pyinstaller ops/packaging/parse_tools.spec
 ## 开发提示
 
 ```bash
-# 架构相关单测
-pytest tests/test_app_factory.py tests/test_task_store.py -q
+# 架构 / 平台相关单测
+pytest tests/test_app_factory.py tests/test_task_store.py \
+  tests/test_alipay_parse.py tests/test_wechat_live_pairs.py \
+  tests/test_live_photo_extract.py -q
 
 # 能力探针
 curl -s http://127.0.0.1:5200/api/capabilities | python -m json.tool

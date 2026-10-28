@@ -129,6 +129,22 @@ const SettingsPage = {
                     </div>
                 </div>
 
+                <!-- 小红书下载配置（公众号版由 mp-mode.js 隐藏） -->
+                <div class="card" data-mp-hide>
+                    <div class="card-header">
+                        <h3 class="card-title">📕 小红书下载配置</h3>
+                    </div>
+                    <div class="card-body" style="padding: 0 var(--spacing-md) var(--spacing-md);">
+                        <div class="form-group" style="display: flex; flex-wrap: wrap; gap: 20px; margin-top: var(--spacing-md);">
+                            <label class="form-checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="setting-xhs-download-live" style="width: 18px; height: 18px; accent-color: var(--primary);" />
+                                <span>下载 Live 实况图（附带短视频）</span>
+                            </label>
+                        </div>
+                        <div class="form-hint">开启后图集笔记会额外下载每张 Live 对应的 mp4；关闭可节省流量与磁盘。</div>
+                    </div>
+                </div>
+
                 <!-- B站下载配置（公众号版由 mp-mode.js 隐藏） -->
                 <div class="card" data-mp-hide>
                     <div class="card-header">
@@ -285,6 +301,7 @@ const SettingsPage = {
         const biliQuality = document.getElementById('setting-bili-quality');
         const biliDanmaku = document.getElementById('setting-bili-danmaku');
         const biliSubtitle = document.getElementById('setting-bili-subtitle');
+        const xhsDownloadLive = document.getElementById('setting-xhs-download-live');
 
         if (dirInput) dirInput.value = data.download_dir || '';
         if (concurrentInput) concurrentInput.value = data.concurrent_downloads || 1;
@@ -310,6 +327,7 @@ const SettingsPage = {
         if (biliQuality) biliQuality.value = data.bili_video_quality || '1080p';
         if (biliDanmaku) biliDanmaku.checked = data.bili_download_danmaku !== undefined ? !!data.bili_download_danmaku : true;
         if (biliSubtitle) biliSubtitle.checked = data.bili_download_subtitle !== undefined ? !!data.bili_download_subtitle : true;
+        if (xhsDownloadLive) xhsDownloadLive.checked = data.xhs_download_live !== undefined ? !!data.xhs_download_live : true;
         this.toggleRssUpload();
         this.syncRssEndMinute();
     },
@@ -362,6 +380,7 @@ const SettingsPage = {
         const biliQuality = document.getElementById('setting-bili-quality');
         const biliDanmaku = document.getElementById('setting-bili-danmaku');
         const biliSubtitle = document.getElementById('setting-bili-subtitle');
+        const xhsDownloadLive = document.getElementById('setting-xhs-download-live');
 
         const request_delay = parseFloat(delayInput.value);
         if (isNaN(request_delay) || request_delay < 0.1) {
@@ -393,6 +412,7 @@ const SettingsPage = {
             bili_video_quality: biliQuality ? biliQuality.value : '1080p',
             bili_download_danmaku: biliDanmaku ? biliDanmaku.checked : true,
             bili_download_subtitle: biliSubtitle ? biliSubtitle.checked : true,
+            xhs_download_live: xhsDownloadLive ? xhsDownloadLive.checked : true,
         };
 
         try {
@@ -427,6 +447,7 @@ const SettingsPage = {
                 bili_video_quality: '1080p',
                 bili_download_danmaku: true,
                 bili_download_subtitle: true,
+                xhs_download_live: true,
             };
             try {
                 await API.settings.save(defaults);

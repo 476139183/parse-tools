@@ -125,6 +125,8 @@ grep -nE 'eventbus|RateLimit|rateGate|finderGetFollowList|finderUserPage|sync-fe
 
 **预期观察**：抖音、快手、小红书和 B 站都以“客户端类 + 蓝图路由 + 任务状态/取消 + 平台历史 JSON”为骨架，但认证和协议不同：抖音有 a_bogus 签名，快手主页依赖 Cookie，小红书解析 SSR 状态，B 站使用 WBI 签名和 DASH。视频号是唯一强依赖 `backend/mitm_proxy.py` 的链路：只允许三个微信域名解密，伪 API 在本地响应，页面脚本被注入，feed 合并进 JSON，下载后用 ISAAC64 key 解密文件头。
 
+补充（现行路径在 `parse_tools/platforms/`）：微博 MVP（`weibo/`，Cookie + m.weibo.cn）；支付宝生活号+（`alipay/`，短链解 contentId → webgw，无需 Cookie）；多平台图集 Live 实况见 `tests/test_live_photo_extract.py` / `tests/test_wechat_live_pairs.py`。
+
 调试时优先读 `data/frontend_errors.log`、`data/parse_debug.log`、`data/channels_call_log.jsonl` 和 `data/channels_parsed_feeds.json`；代理问题先调用停止接口恢复系统代理，再检查 CA 和 `NO_PROXY`。
 
 ## 练习 6：验证转码队列与打包架构

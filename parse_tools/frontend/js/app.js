@@ -178,7 +178,7 @@ const App = {
         }
     },
 
-    platformGroups: ['wechat', 'wechat_channels', 'douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'common'],
+    platformGroups: ['wechat', 'wechat_channels', 'douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'weibo', 'alipay', 'common'],
 
     initPlatformRail() {
         document.querySelectorAll('.platform-chip[data-group]').forEach((chip) => {
@@ -193,6 +193,8 @@ const App = {
                     kuaishou: 'ks_parse',
                     xiaohongshu: 'xhs_download',
                     bilibili: 'bili_download',
+                    weibo: 'weibo_parse',
+                    alipay: 'alipay_parse',
                     common: 'settings',
                 };
                 const target = defaults[group];
@@ -234,6 +236,8 @@ const App = {
         if (pageKey.startsWith('ks_')) return 'kuaishou';
         if (pageKey.startsWith('xhs_')) return 'xiaohongshu';
         if (pageKey.startsWith('bili_')) return 'bilibili';
+        if (pageKey.startsWith('weibo_')) return 'weibo';
+        if (pageKey.startsWith('alipay_')) return 'alipay';
         if (pageKey.startsWith('channels')) return 'wechat_channels';
         if (['proxy', 'settings', 'transcode', 'dy_transcode'].includes(pageKey)) return 'common';
         return 'wechat';
@@ -270,6 +274,10 @@ const App = {
             page = 'xhs_download'; group = 'xiaohongshu';
         } else if (/bilibili\.com|b23\.tv/.test(lower)) {
             page = 'bili_download'; group = 'bilibili';
+        } else if (/weibo\.com|weibo\.cn|t\.cn\//.test(lower)) {
+            page = 'weibo_parse'; group = 'weibo';
+        } else if (/ur\.lepudding\.com|ur\.alipay\.com|render\.alipay\.com|contentid=/i.test(lower)) {
+            page = 'alipay_parse'; group = 'alipay';
         } else if (/channels\.weixin\.qq\.com|视频号/.test(lower) || /sph[A-Za-z0-9]/.test(text)) {
             page = 'channels'; group = 'wechat_channels';
         } else if (/mp\.weixin\.qq\.com/.test(lower)) {
@@ -283,7 +291,8 @@ const App = {
         setTimeout(() => {
             const candidates = [
                 '#parse-url', '#download-url', '#url-input', '#ks-parse-url',
-                '#dy-parse-url', '#xhs-url', '#bili-url', 'input[type="url"]',
+                '#dy-parse-url', '#xhs-url', '#bili-url', '#weibo-url-input', '#alipay-url-input',
+                'input[type="url"]',
                 'textarea[placeholder*="链接"]', 'input[placeholder*="链接"]',
             ];
             for (const sel of candidates) {

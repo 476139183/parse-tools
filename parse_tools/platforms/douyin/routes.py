@@ -413,6 +413,8 @@ def detect_url():
             item_type = "video"
             nickname = "未知作者"
             cover = ""
+            live_count = 0
+            image_count = 0
             try:
                 detail = client.get_video_detail(aweme_id, share_url=final_url)
                 media_info = DouyinClient.parse_media_info(detail)
@@ -420,10 +422,13 @@ def detect_url():
                 item_type = media_info.get("type", "video")
                 nickname = media_info.get("nickname", "未知作者")
                 cover = media_info.get("cover", "")
+                live_count = sum(1 for u in (media_info.get("live_photo_urls") or []) if u)
+                image_count = len(media_info.get("urls") or [])
             except Exception:
                 pass
             type_name = "图文" if item_type == "image" else "视频"
             name_str = f"「{title}」" if title else ""
+            live_hint = f"（含 {live_count} 张实况）" if live_count else ""
             return jsonify({
                 "type": "single",
                 "id": aweme_id,
@@ -431,8 +436,10 @@ def detect_url():
                 "nickname": nickname,
                 "cover": cover,
                 "item_type": item_type,
+                "image_count": image_count,
+                "live_count": live_count,
                 "resolved_url": final_url,
-                "message": f"单个{type_name} {name_str}"
+                "message": f"单个{type_name} {name_str}{live_hint}"
             })
 
         # Check User Profile

@@ -384,14 +384,23 @@ const ChannelsUserPage = {
                         </div>
 
                         <!-- 下载完毕角标 -->
+                        ${(() => {
+                            const isPic = video.type === 'picture' || (video.images && video.images.length);
+                            const liveN = video.live_count || (video.lives || []).filter(Boolean).length;
+                            if (isPic) {
+                                return `<span style="position:absolute;bottom:10px;left:10px;z-index:5;background:rgba(0,0,0,0.65);color:#fff;border-radius:4px;font-size:0.72rem;padding:2px 6px;">🖼️ 图文${liveN ? ` · ${liveN}实况` : ''} · ${(video.images||[]).length}张</span>`;
+                            }
+                            return '';
+                        })()}
+
                         ${isDownloaded ? `
                             <span class="badge badge-success" style="position: absolute; top: 10px; right: 10px; z-index: 5; background: var(--primary); color: white; border-radius: 4px; font-size: 0.75rem; padding: 2px 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
                                 已下载
                             </span>
                         ` : ''}
  
-                        <!-- 播放角标 (如果已下载且有本地路径) -->
-                        ${isDownloaded && downloadedItem.path ? `
+                        <!-- 播放角标 (视频且已下载) -->
+                        ${isDownloaded && downloadedItem.path && video.type !== 'picture' ? `
                             <div class="action-btn" onclick="event.stopPropagation(); ChannelsUserPage.playLocalVideo('${this.esc(downloadedItem.path)}')" 
                                  style="position: absolute; top: calc(50% - 22px); left: calc(50% - 22px); width: 44px; height: 44px; background: rgba(7,193,96,0.9); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: transform 0.2s;"
                                  onmouseenter="this.style.transform='scale(1.1)';" onmouseleave="this.style.transform='scale(1)';">
@@ -579,28 +588,37 @@ const ChannelsUserPage = {
 
             if (progressBar) progressBar.style.width = `${progressVal}%`;
             if (progressPercent) progressPercent.textContent = `${progressVal}%`;
-            if (progressText) progressText.textContent = `正在下载第 ${currentIndex}/${selectedList.length} 个视频...`;
-
-            const qualitySelect = document.getElementById('batch-quality-select');
-            const chosenQuality = qualitySelect ? qualitySelect.value : 'default';
-            let downloadUrl = video.video_url;
-
-            if (chosenQuality === 'raw') {
-                downloadUrl = this.getRawVideoUrl(video.video_url || video.video_url_h265 || video.video_url_h264);
-            } else if (chosenQuality === 'h265') {
-                downloadUrl = video.video_url_h265 || video.video_url_h264 || video.video_url;
-            } else if (chosenQuality === 'h264') {
-                downloadUrl = video.video_url_h264 || video.video_url_h265 || video.video_url;
-            } else {
-                downloadUrl = video.video_url || video.video_url_h264 || video.video_url_h265;
-            }
+            if (progressText) progressText.textContent = `正在下载第 ${currentIndex}/${selectedList.length} 项...`;
 
             appendLog(`⬇️ (${currentIndex}/${selectedList.length}) 正在下载: ${video.description || '无描述'}`);
 
             try {
+                if (video.type === 'picture' || (video.images && video.images.length)) {
+                    await API.channels.downloadPictures({
+                        images: video.images || [],
+                        lives: video.lives || [],
+                        description: video.description || '',
+                        createtime: video.createtime || '',
+                        decrypt_key: video.decode_key || null,
+                    });
+                } else {
+                const qualitySelect = document.getElementById('batch-quality-select');
+                const chosenQuality = qualitySelect ? qualitySelect.value : 'default';
+                let downloadUrl = video.video_url;
+
+                if (chosenQuality === 'raw') {
+                    downloadUrl = this.getRawVideoUrl(video.video_url || video.video_url_h265 || video.video_url_h264);
+                } else if (chosenQuality === 'h265') {
+                    downloadUrl = video.video_url_h265 || video.video_url_h264 || video.video_url;
+                } else if (chosenQuality === 'h264') {
+                    downloadUrl = video.video_url_h264 || video.video_url_h265 || video.video_url;
+                } else {
+                    downloadUrl = video.video_url || video.video_url_h264 || video.video_url_h265;
+                }
                 await API.channels.download(downloadUrl, video.description, video.createtime, video.decode_key);
+                }
                 completed++;
-                appendLog(`✅ (${currentIndex}/${selectedList.length}) 成功！视频已保存并自动解密。`);
+                appendLog(`✅ (${currentIndex}/${selectedList.length}) 成功已保存。`);
             } catch (err) {
                 failed++;
                 appendLog(`❌ (${currentIndex}/${selectedList.length}) 失败！错误信息: ${err.message || err}`);
@@ -637,6 +655,24 @@ const ChannelsUserPage = {
     async downloadSingleVideo(videoId) {
         const video = this.videos.find(v => v.id === videoId);
         if (!video) return;
+
+        // 图文 / 实况
+        if (video.type === 'picture' || (video.images && video.images.length)) {
+            try {
+                Toast.info('正在下载图文…');
+                const res = await API.channels.downloadPictures({
+                    images: video.images || [],
+                    lives: video.lives || [],
+                    description: video.description || '',
+                    createtime: video.createtime || '',
+                    decrypt_key: video.decode_key || null,
+                });
+                Toast.success(res.message || '图文下载完成');
+                await this.loadHistory();
+                this.renderVideos();
+            } catch (e) { /* API toast */ }
+            return;
+        }
 
         const rawUrl = this.getRawVideoUrl(video.video_url || video.video_url_h265 || video.video_url_h264);
         const h265Url = video.video_url_h265 || "";

@@ -26,7 +26,7 @@ const KsParsePage = {
                             📹 短视频 (MP4)
                         </span>
                         <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 4px 10px; border-radius: 16px; font-size: 0.78rem; font-weight: 500;">
-                            🖼️ 图集 (JPG)
+                            🖼️ 图集 / 实况 (WebP+MP4)
                         </span>
                         <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.25); padding: 4px 10px; border-radius: 16px; font-size: 0.78rem; font-weight: 500;">
                             🔗 移动端分享短链 / 电脑网页端
@@ -186,7 +186,10 @@ const KsParsePage = {
 
         coverImg.src = item.cover || '';
         const isImage = item.type === 'image';
-        badge.textContent = isImage ? `🖼️ 图集 (${item.count || (item.urls ? item.urls.length : 0)}张)` : '📹 视频';
+        const liveN = item.live_count || (item.live_photo_urls || []).filter(Boolean).length;
+        badge.textContent = isImage
+            ? (liveN ? `🖼️ 图集 ${item.count || item.urls.length} 张 · 实况 ${liveN}` : `🖼️ 图集 (${item.count || (item.urls ? item.urls.length : 0)}张)`)
+            : '📹 视频';
         badge.style.background = isImage ? 'rgba(16, 185, 129, 0.85)' : 'rgba(59, 130, 246, 0.85)';
 
         avatarImg.src = item.avatar || '';
@@ -195,7 +198,9 @@ const KsParsePage = {
         titleEl.textContent = item.title || '（该作品无文案标题）';
 
         if (isImage) {
-            countTag.textContent = `共 ${item.count || item.urls.length} 张高清图片`;
+            countTag.textContent = liveN
+                ? `共 ${item.count || item.urls.length} 张（含 ${liveN} 张实况尝试）`
+                : `共 ${item.count || item.urls.length} 张高清图片`;
         } else {
             countTag.textContent = '高清 MP4 视频直链';
         }

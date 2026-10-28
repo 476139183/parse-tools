@@ -13,7 +13,7 @@
 | 路径 | 用途 |
 |---|---|
 | `parse_tools/core` | create_app、config、TaskStore、registry |
-| `parse_tools/platforms/*` | 六平台适配 |
+| `parse_tools/platforms/*` | 八平台适配（公众号 / 视频号 / 抖音 / 快手 / 小红书 / B 站 / 微博 / 支付宝）；公众号分 **文章** / **图文**，Live 仅图文 |
 | `parse_tools/services` | proxy / transcode / updater / waterwall |
 | `parse_tools/frontend/` | Hash SPA（`page_registry.js` + `router.js` + `api.js`） |
 | `ops/injection/src/` | 视频号页面注入（第一方） |
@@ -57,6 +57,21 @@ RSS 调度、账号池、转码队列、各平台下载线程。
 ## 扩展路径
 
 在 `parse_tools/platforms/<name>/` 增加平台并在 `PlatformRegistry` 注册；前端改 `page_registry.js`。
+
+## 平台能力速览
+
+| 平台 | 包路径 | 典型入口 | 备注 |
+|---|---|---|---|
+| 微信公众号 | `platforms/wechat/` | 文章列表 / 下载 | **文章** vs **图文**；图文可下 Live mp4 |
+| 视频号 | `platforms/channels/` | 分享链接 / MITM | 可选注入采集 |
+| 抖音 | `platforms/douyin/` | 单条 / 主页 | 图集支持 Live |
+| 快手 | `platforms/kuaishou/` | 单条 / 主页 | 图集 WebP；尝试 Live + BGM |
+| 小红书 | `platforms/xiaohongshu/` | 链接下载 | 图集 Live mp4 |
+| B 站 | `platforms/bilibili/` | 多分 P 下载 | 需 ffmpeg 混流 |
+| 微博 | `platforms/weibo/` | `#weibo_parse` | Cookie；单条图文 / 视频 |
+| 支付宝 | `platforms/alipay/` | `#alipay_parse` | 生活号+ 短链；**无需 Cookie** |
+
+落盘目录（相对 `DATA_DIR`）：`wechat_*` / `douyin_downloads` / `kuaishou_downloads` / `xhs_downloads` / `bilibili_downloads` / `weibo_downloads` / `alipay_downloads` 等。
 
 ## Bug 路由
 

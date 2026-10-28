@@ -1622,6 +1622,54 @@ class DouyinClient:
     # ── 解析资源信息 ──────────────────────────────────────
 
     @staticmethod
+    def _extract_live_photo_url(img: dict) -> str:
+        """从单张图结构中提取 Live Photo 视频 URL（多字段兜底）。"""
+        if not isinstance(img, dict):
+            return ""
+
+        def _from_addr(addr) -> str:
+            if isinstance(addr, list) and addr:
+                first = addr[0]
+                if isinstance(first, dict):
+                    return first.get("src") or first.get("url") or ""
+                if isinstance(first, str):
+                    return first
+            if isinstance(addr, dict):
+                urls = addr.get("url_list") or addr.get("urlList") or []
+                if urls:
+                    return urls[0] if isinstance(urls[0], str) else (urls[0].get("src") or urls[0].get("url") or "")
+                return addr.get("src") or addr.get("url") or ""
+            if isinstance(addr, str) and addr.startswith("http"):
+                return addr
+            return ""
+
+        video = img.get("video")
+        if isinstance(video, dict):
+            for key in ("play_addr", "playAddr", "play_addr_h264", "playAddrH264",
+                         "download_addr", "downloadAddr"):
+                url = _from_addr(video.get(key))
+                if url:
+                    return url
+            bit_rates = video.get("bit_rate") or video.get("bitRate") or video.get("bitRateList") or []
+            if isinstance(bit_rates, list):
+                for br in bit_rates:
+                    if not isinstance(br, dict):
+                        continue
+                    url = _from_addr(br.get("play_addr") or br.get("playAddr"))
+                    if url:
+                        return url
+
+        for key in ("live_photo", "livePhoto", "animated_url", "animatedUrl"):
+            raw = img.get(key)
+            if isinstance(raw, str) and raw.startswith("http"):
+                return raw
+            if isinstance(raw, dict):
+                url = _from_addr(raw.get("play_addr") or raw.get("playAddr") or raw)
+                if url:
+                    return url
+        return ""
+
+    @staticmethod
     def parse_media_info(detail: dict) -> dict:
         """
         从 aweme_detail 中提取下载所需的资源信息
@@ -1700,18 +1748,8 @@ class DouyinClient:
                     # 取最后一个（通常是最高清）
                     urls.append(url_list[-1] if len(url_list) > 1 else url_list[0])
 
-                # 实况照片 (Live Photo) 视频流检测
-                live_vid = ""
-                if "video" in img and isinstance(img["video"], dict):
-                    v = img["video"]
-                    play_addr = v.get("play_addr") or v.get("playAddr")
-                    if isinstance(play_addr, list) and play_addr:
-                        live_vid = play_addr[0].get("src") or play_addr[0].get("url") or ""
-                    elif isinstance(play_addr, dict):
-                        p_urls = play_addr.get("url_list") or play_addr.get("urlList") or []
-                        if p_urls:
-                            live_vid = p_urls[0]
-                live_photo_urls.append(live_vid)
+                # 实况照片 (Live Photo) 视频流检测（多字段兜底）
+                live_photo_urls.append(DouyinClient._extract_live_photo_url(img))
 
             # 提取背景音乐 URL
             music_url = ""

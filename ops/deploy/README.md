@@ -127,13 +127,15 @@ refresh_queue sign
 
 | 平台 | 解析 | 文件下载 | 需要的运行时 |
 |---|---|---|---|
-| 公众号文章 | `requests` + `bs4` 解析 HTML | `requests` 流式（图片/视频资源） | 无（浏览器仅风控兜底） |
+| 公众号文章 / 图文 | `requests` + `bs4` 解析 HTML | `requests` 流式（图片 / Live mp4） | 无（浏览器仅风控兜底） |
 | 公众号 PDF | — | Chrome 命令行 `--print-to-pdf` | **Chromium** |
 | 抖音 | `requests` + 自研 SecSDK 签名 | `requests` 流式 + `Range` 断点续传 | 无（登录扫码用浏览器） |
 | 快手 | `requests` | `requests` 流式 + `Range` 断点续传 | 无 |
 | 小红书 | `curl_cffi`（模拟 TLS 指纹） | `requests` 流式 | 无 |
 | B 站 | `requests`（`BilibiliClient`） | `requests` + **ffmpeg** 音视频混流 | **ffmpeg** |
 | 微信视频号 | 腾讯元宝接口 / 私有 Worker（纯 HTTP） | `requests` + 内置 ISAAC64 解密 | 无（但扫码登录需可见浏览器，容器里做不了） |
+| 微博 | `requests`（m.weibo.cn / ajax） | `requests` 流式 | 无（建议配置 Cookie） |
+| 支付宝生活号+ | `requests`（webgw contentId） | `requests` 流式 | 无（短链，无需 Cookie） |
 
 结论：**真正下载视频/图片走的是 HTTP 流式请求，不是浏览器**。Chromium 只在四个地方用到：PDF 导出、微信风控兜底、各平台扫码登录、需要渲染的页面解析。所以不装 Chromium 时，公众号抓取与 RSS 完全不受影响。
 

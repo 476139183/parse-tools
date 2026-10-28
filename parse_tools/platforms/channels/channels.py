@@ -557,6 +557,91 @@ def download_video():
         return jsonify({"error": f"下载视频失败: {str(e)}"}), 500
 
 
+@channels_bp.route("/download-pictures", methods=["POST"])
+def download_pictures():
+    """下载视频号图文（含实况 Live 短视频，若有）。"""
+    data = request.get_json() or {}
+    images = data.get("images") or []
+    lives = data.get("lives") or []
+    description = str(data.get("description") or "").strip()
+    createtime = str(data.get("createtime") or "").strip()
+    decrypt_key = data.get("decrypt_key") or data.get("key")
+
+    if not images:
+        return jsonify({"error": "图片列表为空"}), 400
+
+    settings = get_settings()
+    base_download_dir = Path(settings.get("download_dir") or str(OUTPUT_DIR))
+    channels_dir = base_download_dir / "channels"
+    folder_name = sanitize_filename(description or "channels_album", createtime).replace(".mp4", "")
+    folder = channels_dir / folder_name
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        session = requests.Session()
+        session.trust_env = False
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Encoding": "identity",
+            "Connection": "keep-alive",
+        }
+        total_bytes = 0
+        live_ok = 0
+
+        def _fetch(url: str, dest: Path, try_decrypt: bool = False) -> int:
+            resp = session.get(url, headers=headers, stream=True, timeout=60)
+            resp.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=131072):
+                    if chunk:
+                        f.write(chunk)
+            if try_decrypt and decrypt_key:
+                try:
+                    key_val = int(decrypt_key)
+                    if key_val > 0:
+                        with open(dest, "r+b") as f:
+                            file_data = bytearray(f.read(131072))
+                            decrypt_channels_data(file_data, key_val)
+                            f.seek(0)
+                            f.write(file_data)
+                except Exception as ed:
+                    print(f"解密媒体失败: {ed}")
+            return dest.stat().st_size
+
+        for idx, img_url in enumerate(images, 1):
+            if not img_url:
+                continue
+            img_path = folder / f"{idx:02d}.jpg"
+            total_bytes += _fetch(img_url, img_path, try_decrypt=True)
+            live_url = lives[idx - 1] if idx - 1 < len(lives) else ""
+            if live_url:
+                live_path = folder / f"{idx:02d}_live.mp4"
+                try:
+                    total_bytes += _fetch(live_url, live_path, try_decrypt=True)
+                    live_ok += 1
+                except Exception as le:
+                    print(f"Live 下载失败 {idx}: {le}")
+                    if live_path.exists():
+                        try:
+                            live_path.unlink()
+                        except Exception:
+                            pass
+
+        add_channels_history_item(
+            description or folder_name,
+            f"图文" + (f"+实况{live_ok}" if live_ok else ""),
+            folder,
+            total_bytes,
+        )
+        return jsonify({
+            "success": True,
+            "message": f"图文下载成功（{len(images)} 张" + (f"，实况 {live_ok}" if live_ok else "") + "）",
+            "path": str(folder),
+            "live_count": live_ok,
+        })
+    except Exception as e:
+        return jsonify({"error": f"下载图文失败: {str(e)}"}), 500
+
+
 @channels_bp.route("/open-folder", methods=["POST"])
 def open_folder():
     """在文件管理器中打开视频号下载文件夹"""

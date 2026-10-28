@@ -20,7 +20,7 @@ const ArticlesPage = {
         return `
             <div class="page-header">
                 <h2 class="page-title">文章下载</h2>
-                <p class="page-description">选择公众号，浏览并下载文章</p>
+                <p class="page-description">选择公众号，浏览并下载「文章」与「图文」；图文支持 Live 实况</p>
             </div>
 
             <!-- 公众号选择器 -->
@@ -367,6 +367,7 @@ const ArticlesPage = {
             const globalIdx = this.currentPage * this.pageSize + idx;
             const isSelected = this.selectedArticles.has(globalIdx);
             const time = formatArticleTime(article.update_time);
+            const typeMeta = this.contentTypeMeta(article.item_show_type);
 
             return `
                 <div class="article-item ${isSelected ? 'selected' : ''}" data-idx="${globalIdx}" onclick="ArticlesPage.handleArticleClick(${globalIdx}, ${idx}, event)">
@@ -392,6 +393,7 @@ const ArticlesPage = {
                         </div>
                         ${article.digest ? `<div class="article-digest">${article.digest}</div>` : ''}
                         <div class="article-meta">
+                            <span class="badge" style="font-size: 0.7rem; background: ${typeMeta.bg}; color: ${typeMeta.color};">${typeMeta.label}</span>
                             ${time ? `<span>📅 ${time}</span>` : ''}
                             ${article.author ? `<span>✍️ ${article.author}</span>` : ''}
                             ${article.is_original ? '<span class="badge badge-info" style="font-size: 0.7rem;">原创</span>' : ''}
@@ -658,10 +660,30 @@ const ArticlesPage = {
         }
     },
 
+    contentTypeMeta(showType) {
+        const n = parseInt(showType, 10);
+        if (n === 8) {
+            return { label: '图文', bg: 'rgba(20,184,166,0.15)', color: '#0f766e' };
+        }
+        if (n === 10) {
+            return { label: '文字', bg: 'rgba(100,116,139,0.15)', color: '#475569' };
+        }
+        if (n === 5) {
+            return { label: '视频', bg: 'rgba(59,130,246,0.15)', color: '#2563eb' };
+        }
+        return { label: '文章', bg: 'rgba(90,110,130,0.12)', color: '#5a6e82' };
+    },
+
     async downloadSingle(localIdx) {
         const article = this.articles[localIdx];
         if (!article) return;
-        await this.downloadArticles([{ title: article.title, link: article.link, id: article.id, aid: article.id }]);
+        await this.downloadArticles([{
+            title: article.title,
+            link: article.link,
+            id: article.id,
+            aid: article.id,
+            item_show_type: article.item_show_type,
+        }]);
     },
 
     async downloadSelected() {
@@ -669,7 +691,13 @@ const ArticlesPage = {
         this.selectedArticles.forEach(globalIdx => {
             const article = this.loadedArticlesMap.get(globalIdx);
             if (article && article.link) {
-                selectedList.push({ title: article.title, link: article.link, id: article.id, aid: article.id });
+                selectedList.push({
+                    title: article.title,
+                    link: article.link,
+                    id: article.id,
+                    aid: article.id,
+                    item_show_type: article.item_show_type,
+                });
             }
         });
 

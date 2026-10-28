@@ -700,28 +700,101 @@ def save_synced_feeds(username, feeds):
             feeds_db[username].append(of)
         
     for feed in feeds:
-        is_media = False
-        if feed.get("type") == "media":
-            is_media = True
-        elif feed.get("objectDesc", {}).get("mediaType") == 4:
-            is_media = True
-            
-        if not is_media:
-            continue # Sync videos only
-            
+        object_desc = feed.get("objectDesc", {}) or {}
+        media_type = object_desc.get("mediaType")
+        feed_kind = feed.get("type")  # media | picture | live (normalized) or raw
+
+        is_video = feed_kind == "media" or media_type == 4
+        is_picture = feed_kind == "picture" or media_type == 2
+        if not is_video and not is_picture:
+            continue
+
         feed_id = feed.get("id")
         if not feed_id:
             continue
-            
-        # Try to parse as raw first, fallback to flat
-        object_desc = feed.get("objectDesc", {})
-        media_list = object_desc.get("media", [])
-        
+
+        media_list = object_desc.get("media", []) or feed.get("files") or []
         description = object_desc.get("description") or feed.get("title") or feed.get("description") or ""
         createtime = str(feed.get("createtime", 0))
-        
+
+        # ── 图文 / 实况图 ──────────────────────────────────
+        if is_picture and not is_video:
+            images = []
+            lives = []
+            cover_url = ""
+            decode_key = feed.get("key") or ""
+            for m in media_list:
+                if not isinstance(m, dict):
+                    continue
+                img_url = (
+                    (m.get("url") or "") + (m.get("urlToken") or "")
+                    or m.get("fullUrl") or m.get("thumbUrl") or m.get("coverUrl") or ""
+                )
+                if not img_url and m.get("url"):
+                    img_url = m.get("url")
+                live_url = ""
+                # 实况：同条 media 带短视频时长，或独立 live 字段
+                play_len = m.get("videoPlayLen") or m.get("videoPlayDuration") or 0
+                if play_len and (m.get("url") or m.get("fullUrl")):
+                    # 有些图文实况静图在 thumb/fullThumb，动图在 url
+                    still = m.get("fullThumbUrl") or m.get("thumbUrl") or m.get("coverUrl") or ""
+                    motion = (m.get("url") or "") + (m.get("urlToken") or "")
+                    if still:
+                        img_url = still
+                        live_url = motion
+                    elif motion:
+                        live_url = motion
+                live_extra = m.get("livePhoto") or m.get("live_photo") or {}
+                if isinstance(live_extra, dict) and not live_url:
+                    live_url = (live_extra.get("url") or "") + (live_extra.get("urlToken") or live_extra.get("token") or "")
+                if img_url:
+                    images.append(img_url)
+                    lives.append(live_url or "")
+                    if not cover_url:
+                        cover_url = img_url
+                if m.get("decodeKey") and not decode_key:
+                    decode_key = m.get("decodeKey")
+
+            # 已扁平化的 picture feed
+            if not images and isinstance(feed.get("files"), list):
+                for f in feed["files"]:
+                    if isinstance(f, dict) and f.get("url"):
+                        images.append((f.get("url") or "") + (f.get("urlToken") or ""))
+                        lives.append("")
+
+            item = {
+                "id": feed_id,
+                "type": "picture",
+                "description": description,
+                "cover_url": cover_url or feed.get("cover_url") or "",
+                "images": images,
+                "lives": lives,
+                "live_count": sum(1 for u in lives if u),
+                "video_url": "",
+                "video_url_h264": "",
+                "video_url_h265": "",
+                "createtime": createtime,
+                "decode_key": decode_key,
+                "nickname": feed.get("contact", {}).get("nickname") or nickname,
+                "like_count": feed.get("likeCount", 0),
+                "comment_count": feed.get("commentCount", 0),
+                "forward_count": feed.get("forwardCount", 0),
+                "fav_count": feed.get("favCount", 0),
+            }
+            found = False
+            for ex_item in feeds_db[username]:
+                if ex_item.get("id") == feed_id:
+                    ex_item.update(item)
+                    found = True
+                    break
+            if not found:
+                item["needs_upload"] = True
+                feeds_db[username].append(item)
+            continue
+
+        # ── 视频 ──────────────────────────────────────────
         if media_list:
-            media = media_list[0]
+            media = media_list[0] if isinstance(media_list[0], dict) else {}
             video_url = media.get("url", "") + media.get("urlToken", "")
             cover_url = media.get("coverUrl", "")
             decode_key = media.get("decodeKey") or feed.get("key") or ""
@@ -758,6 +831,7 @@ def save_synced_feeds(username, feeds):
             
         item = {
             "id": feed_id,
+            "type": "media",
             "description": description,
             "cover_url": cover_url,
             "video_url": video_url,

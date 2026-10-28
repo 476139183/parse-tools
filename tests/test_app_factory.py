@@ -10,6 +10,8 @@ def test_full_capabilities():
     assert data["mode"] == "full"
     assert data["product"] == "Parse Tools"
     assert "douyin" in data.get("platforms", [])
+    assert "weibo" in data.get("platforms", [])
+    assert "alipay" in data.get("platforms", [])
 
 
 def test_mp_capabilities():

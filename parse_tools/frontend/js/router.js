@@ -250,6 +250,10 @@ const Router = {
             activeGroup = 'kuaishou';
         } else if (activeKey.startsWith('bili_')) {
             activeGroup = 'bilibili';
+        } else if (activeKey.startsWith('weibo_')) {
+            activeGroup = 'weibo';
+        } else if (activeKey.startsWith('alipay_')) {
+            activeGroup = 'alipay';
         } else if (activeKey.startsWith('channels_') || activeKey === 'channels') {
             activeGroup = 'wechat_channels';
         } else if (['transcode', 'proxy', 'settings'].includes(activeKey)) {
@@ -261,7 +265,7 @@ const Router = {
             return;
         }
 
-        const groups = ['wechat', 'wechat_channels', 'douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'common'];
+        const groups = ['wechat', 'wechat_channels', 'douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'weibo', 'alipay', 'common'];
         groups.forEach(g => {
             const itemsEl = document.getElementById(`items-${g}`);
             const titleEl = document.querySelector(`.nav-group-title[data-group="${g}"]`);

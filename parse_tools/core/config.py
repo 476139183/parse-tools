@@ -78,6 +78,11 @@ DEFAULT_SETTINGS = {
     "db_user": os.environ.get("DB_USER", "root"),
     "db_password": os.environ.get("DB_PASSWORD", ""),
     "db_name": os.environ.get("DB_NAME", "parse_tools"),
+    # ── 小红书 ──────────────────────────────────────────
+    "xhs_download_live": True,
+    "xhs_image_format": "png",
+    # ── 微博 ────────────────────────────────────────────
+    "weibo_cookie": "",
 }
 
 

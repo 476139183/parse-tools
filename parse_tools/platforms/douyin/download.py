@@ -280,10 +280,19 @@ def download_media(media_info: dict, target_dir: Path, custom_dir: Path = None,
         folder_path = user_dir / title_with_id
         folder_path.mkdir(parents=True, exist_ok=True)
 
-        # 图集断点续传：文件夹内图片数量已达到预期张数则整个跳过
+        # 图集断点续传：静图齐全且每张非空 Live 也已落盘才整帖跳过
+        live_photo_urls = media_info.get("live_photo_urls") or []
         if skip_existing:
             existing_imgs = len(list(folder_path.glob("*.jpeg")))
-            if existing_imgs >= len(urls):
+            lives_ok = True
+            for idx, live_url in enumerate(live_photo_urls, 1):
+                if not live_url:
+                    continue
+                live_file = folder_path / f"{idx}_live.mp4"
+                if not (live_file.exists() and live_file.stat().st_size > 0):
+                    lives_ok = False
+                    break
+            if existing_imgs >= len(urls) and lives_ok:
                 _add_log(f"⏭️ 图集已下载过，跳过: {folder_path.name}")
                 _progress_mark(progress_key, aweme_id)
                 return {
@@ -304,7 +313,6 @@ def download_media(media_info: dict, target_dir: Path, custom_dir: Path = None,
             total_bytes += img_bytes
 
         # 下载实况照片 (Live Photo) 对应的动态短视频
-        live_photo_urls = media_info.get("live_photo_urls") or []
         for idx, live_url in enumerate(live_photo_urls, 1):
             if live_url:
                 try:

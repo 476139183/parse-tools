@@ -48,6 +48,12 @@ window.PageRegistry = (function () {
         { key: 'bili_videos', group: 'bilibili', get: () => typeof BiliVideosPage !== 'undefined' ? BiliVideosPage : null },
         { key: 'bili_download', group: 'bilibili', get: () => typeof BiliDownloadPage !== 'undefined' ? BiliDownloadPage : null },
         { key: 'bili_history', group: 'bilibili', get: () => typeof BiliHistoryPage !== 'undefined' ? BiliHistoryPage : null },
+
+        { key: 'weibo_cookie', group: 'weibo', get: () => typeof WeiboCookiePage !== 'undefined' ? WeiboCookiePage : null },
+        { key: 'weibo_parse', group: 'weibo', get: () => typeof WeiboParsePage !== 'undefined' ? WeiboParsePage : null },
+        { key: 'weibo_history', group: 'weibo', get: () => typeof WeiboHistoryPage !== 'undefined' ? WeiboHistoryPage : null },
+        { key: 'alipay_parse', group: 'alipay', get: () => typeof AlipayParsePage !== 'undefined' ? AlipayParsePage : null },
+        { key: 'alipay_history', group: 'alipay', get: () => typeof AlipayHistoryPage !== 'undefined' ? AlipayHistoryPage : null },
     ];
 
     function buildRoutes() {

@@ -228,6 +228,7 @@ const API = {
     channels: {
         fetchVideoProfile(url) { return API.post('/api/channels/fetch_video_profile', { url }); },
         download(url, description, createtime, decryptKey = null) { return API.post('/api/channels/download', { url, description, createtime, decrypt_key: decryptKey }); },
+        downloadPictures(payload) { return API.post('/api/channels/download-pictures', payload); },
         downloadAsync(url, description, createtime, decryptKey = null) { return API.post('/api/channels/download/start', { url, description, createtime, decrypt_key: decryptKey }); },
         getDownloadStatus(taskId) { return API.get(`/api/channels/download/status/${taskId}`, { showError: false }); },
         cancelDownload(taskId) { return API.post(`/api/channels/download/cancel/${taskId}`); },
@@ -355,5 +356,30 @@ const API = {
         openFolder()            { return API.post('/api/bilibili/open-folder'); },
         openFile(path)          { return API.post('/api/bilibili/open-file', { path }); },
         openParent(path)        { return API.post('/api/bilibili/open-parent', { path }); },
-    }
+    },
+
+    // ── Weibo Downloader API ─────────────────────────────
+    weibo: {
+        getCookie()             { return API.get('/api/weibo/cookie'); },
+        saveCookie(cookie)      { return API.post('/api/weibo/cookie', { cookie }); },
+        parse(url)              { return API.post('/api/weibo/parse', { url }); },
+        download(payload)       { return API.post('/api/weibo/download', payload); },
+        progress()              { return API.get('/api/weibo/progress', { showError: false }); },
+        cancel()                { return API.post('/api/weibo/cancel'); },
+        getHistory()            { return API.get('/api/weibo/history'); },
+        clearHistory()          { return API.delete('/api/weibo/history'); },
+        openFolder()            { return API.post('/api/weibo/open-folder'); },
+        openFile(path)          { return API.post('/api/weibo/open-file', { path }); },
+    },
+
+    alipay: {
+        parse(url)              { return API.post('/api/alipay/parse', { url }); },
+        download(payload)       { return API.post('/api/alipay/download', payload); },
+        progress()              { return API.get('/api/alipay/progress', { showError: false }); },
+        cancel()                { return API.post('/api/alipay/cancel'); },
+        getHistory()            { return API.get('/api/alipay/history'); },
+        clearHistory()          { return API.delete('/api/alipay/history'); },
+        openFolder()            { return API.post('/api/alipay/open-folder'); },
+        openFile(path)          { return API.post('/api/alipay/open-file', { path }); },
+    },
 };

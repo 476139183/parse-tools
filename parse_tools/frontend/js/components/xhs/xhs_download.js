@@ -67,9 +67,12 @@ https://www.xiaohongshu.com/explore/65f1a2b3...
             const icon = isVideo ? '🎬' : '📸';
             const watermarked = !!res.video_watermarked;
             const needLogin = !!res.login_required;
+            const liveCount = (res.lives || []).filter(Boolean).length;
             const countLabel = isVideo
                 ? (watermarked ? '视频（带水印）' : '无水印视频')
-                : `图集 (共 ${res.images.length} 张图片)`;
+                : (liveCount > 0
+                    ? `图集 (共 ${res.images.length} 张，含 ${liveCount} 张 Live)`
+                    : `图集 (共 ${res.images.length} 张图片)`);
             const tagsHtml = (res.tags || []).map(t => `<span style="background:var(--bg-tertiary);color:var(--text-secondary);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:500;">#${this._esc(t)}</span>`).join(' ');
             const loginBanner = needLogin ? `
                     <div style="display:flex; align-items:center; gap:12px; background:var(--bg-tertiary); border-left:3px solid #faad14; padding:10px 12px; border-radius:6px;">

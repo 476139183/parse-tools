@@ -1176,7 +1176,13 @@ def _do_batch_download(task_id: str, articles: list, account_name: str):
 
             for attempt in range(1, max_retries + 1):
                 try:
-                    result = download_single_article(link, out_dir, title, review_id=review_id)
+                    result = download_single_article(
+                        link,
+                        out_dir,
+                        title,
+                        review_id=review_id,
+                        item_show_type=article.get("item_show_type"),
+                    )
                     if result.get("success"):
                         success = True
                         break
@@ -1224,6 +1230,10 @@ def _do_batch_download(task_id: str, articles: list, account_name: str):
                 "publish_time": result.get("publish_time", int(time.time())),
                 "has_markdown": result.get("has_markdown", False),
                 "has_pdf": result.get("has_pdf", False),
+                "content_type": result.get("content_type", ""),
+                "content_type_label": result.get("content_type_label", ""),
+                "live_count": result.get("live_count", 0),
+                "item_show_type": article.get("item_show_type"),
             }
             history.append(hist_entry)
             try:
@@ -1291,7 +1301,13 @@ def _download_article_into_task(task_id: str, article: dict, account_name: str, 
     result = {}
     for attempt in range(1, max_retries + 1):
         try:
-            result = download_single_article(link, out_dir, title, review_id=review_id)
+            result = download_single_article(
+                link,
+                out_dir,
+                title,
+                review_id=review_id,
+                item_show_type=article.get("item_show_type"),
+            )
             if result.get("success"):
                 success = True
                 break
@@ -1332,6 +1348,10 @@ def _download_article_into_task(task_id: str, article: dict, account_name: str, 
         "has_markdown": result.get("has_markdown", False),
         "has_pdf": result.get("has_pdf", False),
         "review_id": review_id,
+        "content_type": result.get("content_type", ""),
+        "content_type_label": result.get("content_type_label", ""),
+        "live_count": result.get("live_count", 0),
+        "item_show_type": article.get("item_show_type"),
     }
     history.append(hist_entry)
     try:

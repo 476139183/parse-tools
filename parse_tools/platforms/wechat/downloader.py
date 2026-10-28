@@ -441,13 +441,96 @@ def clean_html_to_text(html: str) -> str:
     return '\n'.join(clean_lines).strip()
 
 
-def try_extract_gallery_article(raw_html: str) -> str:
-    """对于没有 js_content 但有 picture_page_info_list 的画廊/贴图文章，从 JS 变量中提取图片和文字重建 HTML"""
+def _unescape_js_string(s: str) -> str:
+    s = re.sub(r'\\x([0-9a-fA-F]{2})', lambda m: chr(int(m.group(1), 16)), s)
+    s = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
+    for k, v in {
+        '\\n': '\n', '\\t': '\t', '\\r': '\r',
+        '\\"': '"', "\\'": "'", '\\\\': '\\',
+    }.items():
+        s = s.replace(k, v)
+    return s.replace('&amp;', '&')
+
+
+def upgrade_mmbiz_image_url(url: str) -> str:
+    """公众号预览图常带 /640，换成 /0 尽量拿原图。"""
+    if not url:
+        return url
+    url = normalize_url(url)
+    url = re.sub(r'/640(\?)', r'/0\1', url)
+    url = re.sub(r'/default(\?)', r'/0\1', url)
+    return url
+
+
+# 公众号推送类型：文章（长文） vs 图文（贴图/小绿书，可发 Live）
+CONTENT_TYPE_ARTICLE = "article"
+CONTENT_TYPE_PICTURE = "picture"  # 图文
+CONTENT_TYPE_TEXT = "text"
+CONTENT_TYPE_VIDEO = "video"
+
+CONTENT_TYPE_LABELS = {
+    CONTENT_TYPE_ARTICLE: "文章",
+    CONTENT_TYPE_PICTURE: "图文",
+    CONTENT_TYPE_TEXT: "文字",
+    CONTENT_TYPE_VIDEO: "视频",
+}
+
+
+def content_type_from_show_type(item_show_type) -> str:
+    """根据微信 item_show_type 映射内容类型。
+
+    常见值：0=文章，5=视频，8=图文（贴图/小绿书），10=文字。
+    """
+    try:
+        n = int(item_show_type)
+    except (TypeError, ValueError):
+        n = 0
+    if n == 8:
+        return CONTENT_TYPE_PICTURE
+    if n == 10:
+        return CONTENT_TYPE_TEXT
+    if n == 5:
+        return CONTENT_TYPE_VIDEO
+    return CONTENT_TYPE_ARTICLE
+
+
+def classify_wechat_content_type(raw_html: str, item_show_type=None) -> str:
+    """判定公众号内容是「文章」还是「图文」。
+
+    优先用列表接口的 item_show_type；否则看页面是否为贴图结构
+    （有 picture_page_info_list，且 js_content 为空或很短）。
+    """
+    if item_show_type is not None and str(item_show_type).strip() != "":
+        mapped = content_type_from_show_type(item_show_type)
+        if mapped != CONTENT_TYPE_ARTICLE:
+            return mapped
+
+    html = raw_html or ""
+    has_pic_list = "picture_page_info_list" in html
+    if not has_pic_list:
+        return CONTENT_TYPE_ARTICLE
+
+    # 贴图页：js_content 往往为空，正文在 picture_page_info_list + window.desc
+    m = re.search(
+        r'id="js_content"[^>]*>([\s\S]*?)</div>',
+        html,
+        re.I,
+    )
+    body = (m.group(1) if m else "").strip()
+    # 去掉脚本/空白后仍很短 → 图文
+    body_plain = re.sub(r"<script[\s\S]*?</script>", "", body, flags=re.I)
+    body_plain = re.sub(r"<[^>]+>", "", body_plain).strip()
+    if len(body_plain) < 40:
+        return CONTENT_TYPE_PICTURE
+    return CONTENT_TYPE_ARTICLE
+
+
+def _extract_picture_page_info_blocks(raw_html: str) -> list[str]:
+    """抽出 picture_page_info_list 里每个对象的源码块。"""
     pos = raw_html.find("picture_page_info_list")
     if pos == -1:
-        return None
+        return []
 
-    # 提取 picture_page_info_list 数组的 JS 源码
     content = raw_html[pos:]
     brackets = 0
     list_str = ""
@@ -463,11 +546,9 @@ def try_extract_gallery_article(raw_html: str) -> str:
                 break
         if started:
             list_str += char
-
     if not list_str:
-        return None
+        return []
 
-    # 从数组中提取每个对象 block {}
     items = []
     item_brackets = 0
     current_item = ""
@@ -485,52 +566,147 @@ def try_extract_gallery_article(raw_html: str) -> str:
                 items.append(current_item)
                 current_item = ""
                 item_started = False
+    return items
 
-    img_urls = []
-    for item in items:
-        # 兼容单引号和双引号
-        cdn_url_match = re.search(r'cdn_url\s*:\s*["\']([^"\']+)["\']', item)
-        if cdn_url_match:
-            url = cdn_url_match.group(1)
-            # 解密可能存在的 JS 十六进制转义符与特殊编码
-            url = re.sub(r'\\x([0-9a-fA-F]{2})', lambda m: chr(int(m.group(1), 16)), url)
-            url = url.replace('&amp;', '&')
-            img_urls.append(url)
 
-    # 提取描述文字 window.desc，使用支持转义引号的安全模式匹配 JS 字符串字面量
+def _field_from_js_obj(block: str, *keys: str) -> str:
+    for key in keys:
+        m = re.search(
+            rf'{re.escape(key)}\s*:\s*["\']([^"\']+)["\']',
+            block,
+        )
+        if m:
+            return _unescape_js_string(m.group(1)).strip()
+    return ""
+
+
+def extract_wechat_live_pairs(raw_html: str) -> list[dict]:
+    """提取公众号贴图/小绿书中的「静图 + Live 短视频」配对。
+
+    来源：
+    1. window.picture_page_info_list（cdn_url + video_cdn_url 等）
+    2. HTML .swiper_item_img 内的 img + video
+    """
+    pairs: list[dict] = []
+    seen_img: set[str] = set()
+
+    for block in _extract_picture_page_info_blocks(raw_html):
+        # 跳过水印图 / 分享封面
+        if re.search(r'is_watermark\s*:\s*(?:!0|true|1)', block, re.I):
+            continue
+        if re.search(r'type\s*:\s*["\']watermark["\']', block, re.I):
+            continue
+        img = _field_from_js_obj(
+            block, "cdn_url", "cdn_url_1_1", "url", "cover_url",
+        )
+        if not img or "mmbiz" not in img:
+            continue
+        live = _field_from_js_obj(
+            block,
+            "video_cdn_url", "video_url", "live_video_url",
+            "mp4_url", "video_cdn_url_1_1", "hd_video_url",
+        )
+        # 部分页面用嵌套 live_info / video_info
+        if not live:
+            nested = re.search(
+                r'(?:live_info|video_info|live_photo)\s*:\s*\{([^}]{0,800})\}',
+                block, re.I,
+            )
+            if nested:
+                live = _field_from_js_obj(
+                    nested.group(0),
+                    "video_cdn_url", "cdn_url", "url", "video_url", "mp4_url",
+                )
+        img = upgrade_mmbiz_image_url(img)
+        live = normalize_url(live) if live else ""
+        if img in seen_img:
+            continue
+        seen_img.add(img)
+        pairs.append({"img": img, "live": live})
+
+    # DOM 轮播兜底：.swiper_item_img
+    for m in re.finditer(
+        r'<div[^>]*class="[^"]*swiper_item_img[^"]*"[^>]*>([\s\S]*?)</div>',
+        raw_html,
+        re.I,
+    ):
+        box = m.group(1)
+        video_m = re.search(
+            r'<video[^>]*(?:src|data-src)=["\']([^"\']+)["\']',
+            box, re.I,
+        )
+        if not video_m:
+            video_m = re.search(
+                r'<source[^>]*src=["\']([^"\']+)["\']',
+                box, re.I,
+            )
+        img_m = re.search(
+            r'<img[^>]*(?:data-src|src)=["\']([^"\']+)["\']',
+            box, re.I,
+        )
+        img = upgrade_mmbiz_image_url(img_m.group(1)) if img_m else ""
+        live = normalize_url(video_m.group(1)) if video_m else ""
+        if img and img not in seen_img:
+            seen_img.add(img)
+            pairs.append({"img": img, "live": live})
+        elif live and not img:
+            # 仅有视频时也保留
+            pairs.append({"img": "", "live": live})
+
+    return pairs
+
+
+def try_extract_gallery_article(raw_html: str) -> str:
+    """对于没有 js_content 但有 picture_page_info_list 的画廊/贴图文章，从 JS 变量中提取图片和文字重建 HTML"""
+    pairs = extract_wechat_live_pairs(raw_html)
+    img_urls = [p["img"] for p in pairs if p.get("img")]
+
+    # 无 Live 配对信息时回退到仅 cdn_url（兼容旧逻辑）
+    if not img_urls:
+        for block in _extract_picture_page_info_blocks(raw_html):
+            url = _field_from_js_obj(block, "cdn_url")
+            if url:
+                img_urls.append(upgrade_mmbiz_image_url(url))
+
+    # 提取描述文字 window.desc
     desc_match = re.search(r'window\.desc\s*=\s*"((?:[^"\\]|\\.)*)"', raw_html, re.DOTALL)
     if not desc_match:
         desc_match = re.search(r'window\.desc\s*=\s*\'((?:[^\'\\]|\\.)*)\'', raw_html, re.DOTALL)
 
     desc_text = ""
     if desc_match:
-        raw_desc = desc_match.group(1)
-        # 解开转义字符，包含 \xXX, \uXXXX, 常见 JS 控制符
-        desc_text = re.sub(r'\\x([0-9a-fA-F]{2})', lambda m: chr(int(m.group(1), 16)), raw_desc)
-        desc_text = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), desc_text)
-        replacements = {
-            '\\n': '\n',
-            '\\t': '\t',
-            '\\r': '\r',
-            '\\"': '"',
-            "\\'": "'",
-            '\\\\': '\\'
-        }
-        for k, v in replacements.items():
-            desc_text = desc_text.replace(k, v)
+        desc_text = _unescape_js_string(desc_match.group(1))
 
-    if not img_urls and not desc_text:
+    if not img_urls and not pairs and not desc_text:
         return None
 
-    # 重建具有精美外观的画廊/贴图 HTML 正文
     html_parts = []
     html_parts.append('<div class="gallery-images" style="text-align: center; margin-bottom: 20px;">')
-    for u in img_urls:
-        html_parts.append(f'  <img src="{u}" style="max-width: 100%; height: auto; display: block; margin: 10px auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" />')
+    if pairs:
+        for i, p in enumerate(pairs, 1):
+            if p.get("img"):
+                html_parts.append(
+                    f'  <img src="{p["img"]}" style="max-width: 100%; height: auto; display: block; '
+                    f'margin: 10px auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" />'
+                )
+            if p.get("live"):
+                html_parts.append(
+                    f'  <video controls src="{p["live"]}" '
+                    f'style="max-width: 100%; display: block; margin: 8px auto 18px; border-radius: 8px;"></video>'
+                )
+    else:
+        for u in img_urls:
+            html_parts.append(
+                f'  <img src="{u}" style="max-width: 100%; height: auto; display: block; '
+                f'margin: 10px auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" />'
+            )
     html_parts.append('</div>')
 
     if desc_text:
-        html_parts.append('<div class="gallery-desc" style="font-size: 16px; color: #333; line-height: 1.6; background: #f9f9f9; padding: 15px; border-radius: 8px; border-left: 4px solid #07c160; margin-top: 20px;">')
+        html_parts.append(
+            '<div class="gallery-desc" style="font-size: 16px; color: #333; line-height: 1.6; '
+            'background: #f9f9f9; padding: 15px; border-radius: 8px; border-left: 4px solid #07c160; margin-top: 20px;">'
+        )
         paragraphs = [p.strip() for p in desc_text.split('\n') if p.strip()]
         for p in paragraphs:
             html_parts.append(f'  <p style="margin: 0 0 10px 0;">{p}</p>')
@@ -1038,7 +1214,14 @@ def fetch_wechat_article_html(url: str, review_id: str = "") -> tuple[str, str, 
     return "", clean_orig_url, http_error or browser_error or "抓取文章失败"
 
 
-def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redirect_depth: int = 0, review_id: str = "") -> dict:
+def download_single_article(
+    url: str,
+    out_dir: Path,
+    title_hint: str = "",
+    _redirect_depth: int = 0,
+    review_id: str = "",
+    item_show_type=None,
+) -> dict:
     """
     下载单篇文章 (具备三级抗风控抓取能力)
 
@@ -1069,6 +1252,10 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
         if art_dir.exists():
             shutil.rmtree(art_dir, ignore_errors=True)
         return {"success": False, "title": safe_title, "error": fetch_error or "获取页面失败", "is_permanent": False}
+
+    # 文章 vs 图文：图文（贴图/小绿书）才支持发 Live 实况
+    content_type = classify_wechat_content_type(raw_html, item_show_type)
+    content_type_label = CONTENT_TYPE_LABELS.get(content_type, "文章")
 
     # 检测是否为微信屏蔽、删除或出错页面（贴图画廊类型可能不含 js_content/js_article，但含有 picture_page_info_list）
     has_js_content = 'id="js_content"' in raw_html or 'id="js_article"' in raw_html or 'picture_page_info_list' in raw_html
@@ -1134,7 +1321,13 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
             original_url = clean_wechat_article_url(original_url)
             if art_dir.exists():
                 shutil.rmtree(art_dir, ignore_errors=True)
-            return download_single_article(original_url, out_dir, title_hint, _redirect_depth=_redirect_depth + 1)
+            return download_single_article(
+                original_url,
+                out_dir,
+                title_hint,
+                _redirect_depth=_redirect_depth + 1,
+                item_show_type=item_show_type,
+            )
 
     # 提取封面 URL、描述和发布时间
     cover_url = ""
@@ -1222,27 +1415,41 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
 
     # 下载图片
     url_map = {}
+    live_pairs = extract_wechat_live_pairs(raw_html)
     if save_images:
         img_urls = set()
 
         # 优先下载封面图
         if cover_url:
+            cover_url = upgrade_mmbiz_image_url(cover_url)
             cover_ext = get_ext(cover_url) or "jpg"
             cover_filename = f"cover.{cover_ext}"
             real_cover = download_resource(cover_url, media_dir / cover_filename)
             if real_cover:
                 url_map[cover_url] = f"media/{real_cover}"
 
-        # 仅在文章正文 content_html 内提取图片，避免下载外部页眉、页脚、微信小图标等多余资源
+        # 保持出现顺序：先贴图配对，再正文
+        ordered_imgs: list[str] = []
+        seen_imgs: set[str] = set()
+
+        def _add_img(u: str):
+            u = upgrade_mmbiz_image_url(u)
+            if u and u not in seen_imgs:
+                seen_imgs.add(u)
+                ordered_imgs.append(u)
+
+        for p in live_pairs:
+            if p.get("img"):
+                _add_img(p["img"])
         for m in re.finditer(r'data-src="([^"]*mmbiz[^"]*)"', content_html):
-            img_urls.add(normalize_url(m.group(1)))
+            _add_img(m.group(1))
         for m in re.finditer(r'src="([^"]*mmbiz[^"]*)"', content_html):
-            img_urls.add(normalize_url(m.group(1)))
+            _add_img(m.group(1))
 
         video_covers = {normalize_url(v["cover"]) for v in video_iframes if v.get("cover")}
-        img_urls = {u for u in img_urls if u not in video_covers}
+        ordered_imgs = [u for u in ordered_imgs if u not in video_covers]
 
-        for i, img_url in enumerate(img_urls, 1):
+        for i, img_url in enumerate(ordered_imgs, 1):
             if img_url in url_map:
                 continue
             ext = get_ext(img_url)
@@ -1250,6 +1457,36 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
             real_img = download_resource(img_url, media_dir / fname)
             if real_img:
                 url_map[img_url] = f"media/{real_img}"
+                # 同时替换未升级的 /640 变体
+                low = re.sub(r'/0(\?)', r'/640\1', img_url)
+                if low != img_url:
+                    url_map[low] = f"media/{real_img}"
+
+    # 图文（贴图）Live 实况短视频；文章类型一般不会有配对，有则一并保存
+    if save_videos and live_pairs and (
+        content_type == CONTENT_TYPE_PICTURE or any(p.get("live") for p in live_pairs)
+    ):
+        live_idx = 0
+        for p in live_pairs:
+            live_url = (p.get("live") or "").strip()
+            if not live_url or live_url in url_map:
+                continue
+            live_idx += 1
+            ext = get_video_ext(live_url)
+            fname = f"live_{live_idx:03d}.{ext}"
+            real_live = download_resource(live_url, media_dir / fname)
+            if real_live:
+                local = f"media/{real_live}"
+                url_map[live_url] = local
+                # 离线 HTML 中若已有 video 标签，上面的 URL 替换即可；
+                # 若仅有静图，在图后插入 video 便于预览
+                img_u = upgrade_mmbiz_image_url(p.get("img") or "")
+                if img_u and img_u in url_map:
+                    poster = url_map[img_u]
+                    url_map[f"__live_after_img__{img_u}"] = (
+                        f'<video controls src="{local}" poster="{poster}" '
+                        f'style="max-width:100%;display:block;margin:8px auto;"></video>'
+                    )
 
     # 下载视频
     if save_videos:
@@ -1296,12 +1533,31 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
 
     # 替换 URL
     localized = filtered_html
+    live_inserts = []
     for orig, local in url_map.items():
         if orig.startswith("__video_iframe__"):
             video, video_tag = local
             localized = replace_video_iframe(localized, video, video_tag)
+        elif orig.startswith("__live_after_img__"):
+            live_inserts.append((orig[len("__live_after_img__"):], local))
         else:
             localized = replace_variants(localized, orig, local)
+    # 贴图 Live：在对应静图后插入本地 video（若页面里还没有该 live 源）
+    for img_url, video_tag in live_inserts:
+        local_img = url_map.get(img_url) or url_map.get(upgrade_mmbiz_image_url(img_url))
+        if not local_img:
+            continue
+        # 已有同 src 的 video 则跳过
+        src_m = re.search(r'src="(media/[^"]+)"', video_tag)
+        if src_m and src_m.group(1) in localized:
+            continue
+        pattern = re.compile(
+            r'(<img\b[^>]*\bsrc="' + re.escape(local_img) + r'"[^>]*>)',
+            re.I,
+        )
+        localized, n = pattern.subn(r'\1\n' + video_tag, localized, count=1)
+        if n == 0:
+            localized += "\n" + video_tag
     # 同时处理 data-src -> src 替换
     localized = re.sub(r'data-src="([^"]*)"', r'src="\1"', localized)
 
@@ -1394,6 +1650,7 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
         if author_match:
             author = unescape(author_match.group(1)).strip()
 
+    live_count = sum(1 for p in live_pairs if p.get("live"))
     new_json_data = {
         "source": source,
         "author": author,
@@ -1401,6 +1658,10 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
         "url": url,
         "cover_url": cover_url,
         "publish_time": publish_time,
+        "content_type": content_type,
+        "content_type_label": content_type_label,
+        "item_show_type": item_show_type,
+        "live_count": live_count,
         "content": raw_localized
     }
     (art_dir / "data.json").write_text(json.dumps(new_json_data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1450,6 +1711,10 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
         "digest": digest,
         "source": source,
         "author": author,
+        "content_type": content_type,
+        "content_type_label": content_type_label,
+        "item_show_type": item_show_type,
+        "live_count": live_count,
         "resources_count": len(url_map),
         "videos_count": len(video_iframes),
         "leftover_urls": len(find_mmbiz_urls(localized)),
@@ -1475,6 +1740,9 @@ def download_single_article(url: str, out_dir: Path, title_hint: str = "", _redi
         "cover_url": cover_url,
         "digest": digest,
         "publish_time": publish_time,
+        "content_type": content_type,
+        "content_type_label": content_type_label,
+        "live_count": live_count,
         "has_markdown": meta["has_markdown"],
         "markdown_path": str(md_file_path) if md_file_path and md_file_path.exists() else "",
         "has_pdf": meta["has_pdf"],

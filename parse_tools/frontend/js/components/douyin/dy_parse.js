@@ -438,10 +438,18 @@ const DyParsePage = {
                     badgeEl.style.color = '#10b981';
                     iconEl.textContent = '📁';
                 } else {
-                    badgeEl.textContent = data.item_type === 'image' ? '🖼️ 图文作品' : '📹 视频作品';
+                    if (data.item_type === 'image') {
+                        const liveN = data.live_count || 0;
+                        badgeEl.textContent = liveN > 0
+                            ? `🖼️ 图文作品 · ${liveN} 张实况`
+                            : '🖼️ 图文作品';
+                        iconEl.textContent = '🖼️';
+                    } else {
+                        badgeEl.textContent = '📹 视频作品';
+                        iconEl.textContent = '📹';
+                    }
                     badgeEl.style.background = 'rgba(59, 130, 246, 0.15)';
                     badgeEl.style.color = '#3b82f6';
-                    iconEl.textContent = data.item_type === 'image' ? '🖼️' : '📹';
                 }
                 mediaCard.style.display = 'flex';
                 this.updateDownloadBtnLabel();

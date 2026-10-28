@@ -704,6 +704,8 @@ class KuaishouClient:
 
         # 图集直链候选
         norm_imgs = []
+        live_photo_urls = []
+        music_url = ""
         for it in (work.get("imgUrls") or photo.get("imgUrls") or []):
             if isinstance(it, str):
                 norm_imgs.append(it)
@@ -711,18 +713,85 @@ class KuaishouClient:
                 u = it.get("url") or it.get("cdnUrl")
                 if u:
                     norm_imgs.append(u)
+                live_u = (
+                    it.get("liveUrl") or it.get("live_url") or it.get("videoUrl")
+                    or it.get("motionUrl") or it.get("livePhotoUrl") or ""
+                )
+                live_photo_urls.append(live_u if live_u else "")
+
         # 图集 atlas：feedbyid 在 ext_params.atlas；rest feed 在 photo.ext_params.atlas / photo.atlas
+        atlas = (
+            work.get("atlas") or photo.get("atlas")
+            or (work.get("ext_params") or {}).get("atlas")
+            or (photo.get("ext_params") or {}).get("atlas") or {}
+        )
+        if not isinstance(atlas, dict):
+            atlas = {}
+
         if not norm_imgs:
-            atlas = (
-                work.get("atlas") or photo.get("atlas")
-                or (work.get("ext_params") or {}).get("atlas")
-                or (photo.get("ext_params") or {}).get("atlas") or {}
-            )
-            cdn = atlas.get("cdn")
+            cdn = atlas.get("cdn") or atlas.get("cdnList")
             lst = atlas.get("list") or []
             if cdn and lst:
                 cdn0 = cdn[0] if isinstance(cdn, list) else cdn
-                norm_imgs = [f"https://{cdn0}{p}" for p in lst]
+                if isinstance(cdn0, str) and not cdn0.startswith("http"):
+                    cdn0 = f"https://{cdn0}"
+                norm_imgs = [
+                    (p if isinstance(p, str) and p.startswith("http") else f"{cdn0}{p}")
+                    for p in lst if p
+                ]
+
+        # 实况短视频：atlas 内并行 video/live 列表，或与静图同 path 替换为 .mp4 候选
+        if not any(live_photo_urls):
+            live_photo_urls = [""] * len(norm_imgs)
+            live_lists = (
+                atlas.get("video") or atlas.get("videos") or atlas.get("live")
+                or atlas.get("liveList") or atlas.get("motion") or []
+            )
+            cdn = atlas.get("cdn") or atlas.get("cdnList")
+            cdn0 = ""
+            if cdn:
+                cdn0 = cdn[0] if isinstance(cdn, list) else cdn
+                if isinstance(cdn0, str) and cdn0 and not cdn0.startswith("http"):
+                    cdn0 = f"https://{cdn0}"
+            if isinstance(live_lists, list) and live_lists:
+                for i, p in enumerate(live_lists):
+                    if i >= len(live_photo_urls):
+                        break
+                    if isinstance(p, dict):
+                        u = p.get("url") or p.get("cdnUrl") or ""
+                    else:
+                        u = str(p or "")
+                    if u and not u.startswith("http") and cdn0:
+                        u = f"{cdn0}{u}"
+                    live_photo_urls[i] = u
+            elif norm_imgs:
+                # 常见实况素材：同 CDN 路径 webp/jpg 旁有 mp4（下载时再探测）
+                for i, img_u in enumerate(norm_imgs):
+                    if re.search(r"\.(webp|jpe?g|png)(\?|$)", img_u, re.I):
+                        live_photo_urls[i] = re.sub(
+                            r"\.(webp|jpe?g|png)(?=\?|$)", ".mp4", img_u, count=1, flags=re.I
+                        )
+
+        # 图集 BGM（实况素材帖常见）
+        music_raw = (
+            atlas.get("music") or work.get("music") or photo.get("music")
+            or work.get("soundTrack") or photo.get("soundTrack") or ""
+        )
+        if isinstance(music_raw, dict):
+            music_url = (
+                music_raw.get("url") or music_raw.get("audioUrl")
+                or _pick_url(music_raw.get("audioUrls")) or ""
+            )
+        elif isinstance(music_raw, str) and music_raw:
+            if music_raw.startswith("http"):
+                music_url = music_raw
+            else:
+                cdn = atlas.get("cdn") or atlas.get("cdnList")
+                if cdn:
+                    cdn0 = cdn[0] if isinstance(cdn, list) else cdn
+                    if isinstance(cdn0, str) and not cdn0.startswith("http"):
+                        cdn0 = f"https://{cdn0}"
+                    music_url = f"{cdn0}{music_raw}" if cdn0 else ""
 
         # 封面（网格缩略图用）
         cover = (
@@ -739,17 +808,27 @@ class KuaishouClient:
             item_type, urls = "image", norm_imgs
         elif video_url:
             item_type, urls = "video", [video_url]
+            live_photo_urls = []
         elif norm_imgs:
             item_type, urls = "image", norm_imgs
         else:
             item_type, urls = "video", []
+            live_photo_urls = []
+
+        if item_type != "image":
+            live_photo_urls = []
+            music_url = music_url if item_type == "image" else ""
 
         avatar = photo.get("headUrl") or author.get("headerUrl") or work.get("headUrl") or ""
+        live_count = sum(1 for u in live_photo_urls if u)
 
         return {
             "type": item_type,
             "title": title,
             "urls": urls,
+            "live_photo_urls": live_photo_urls,
+            "live_count": live_count,
+            "music_url": music_url,
             "photo_id": photo_id,
             "nickname": clean_filename(nickname),
             "author": clean_filename(nickname),
@@ -862,10 +941,48 @@ def download_media(media_info: dict, target_dir: Path) -> dict:
     else:
         folder_path = user_dir / title_with_id
         folder_path.mkdir(parents=True, exist_ok=True)
-        _add_log(f"📸 正在下载图集 (共 {len(urls)} 张) 到目录: {folder_path.name}")
+        live_photo_urls = media_info.get("live_photo_urls") or []
+        live_n = sum(1 for u in live_photo_urls if u)
+        live_hint = f"，尝试实况 {live_n} 段" if live_n else ""
+        _add_log(f"📸 正在下载图集 (共 {len(urls)} 张{live_hint}) 到目录: {folder_path.name}")
         for idx, img_url in enumerate(urls, 1):
-            save_file = folder_path / f"{idx}.jpg"
+            ext = ".jpg"
+            path_l = urllib.parse.urlparse(img_url).path.lower()
+            for cand in (".webp", ".png", ".jpeg", ".jpg", ".gif"):
+                if path_l.endswith(cand):
+                    ext = ".jpg" if cand == ".jpeg" else cand
+                    break
+            save_file = folder_path / f"{idx}{ext}"
             total_bytes += download_file(img_url, save_file)
+
+            # 实况短视频（若同路径 mp4 不存在则静默跳过）
+            live_url = live_photo_urls[idx - 1] if idx - 1 < len(live_photo_urls) else ""
+            if live_url:
+                live_file = folder_path / f"{idx}_live.mp4"
+                try:
+                    live_bytes = download_file(live_url, live_file)
+                    if live_bytes > 0:
+                        total_bytes += live_bytes
+                        _add_log(f"🎬 第 {idx} 张实况动图已保存")
+                    elif live_file.exists():
+                        live_file.unlink(missing_ok=True)
+                except Exception as le:
+                    if live_file.exists() and live_file.stat().st_size == 0:
+                        try:
+                            live_file.unlink()
+                        except Exception:
+                            pass
+                    _add_log(f"⚠️ 第 {idx} 张实况视频不可用（快手网页常不下发动图轨）: {le}")
+
+        music_url = media_info.get("music_url") or ""
+        if music_url:
+            try:
+                music_file = folder_path / "bgm.m4a"
+                total_bytes += download_file(music_url, music_file)
+                _add_log("🎵 图集背景音已保存")
+            except Exception as me:
+                _add_log(f"⚠️ 背景音下载跳过: {me}")
+
         _add_log(f"✅ 图集全部下载完成! 总大小: {total_bytes / (1024 * 1024):.2f} MB")
         add_history_item(title, "图文", folder_path, total_bytes, author=nickname)
 

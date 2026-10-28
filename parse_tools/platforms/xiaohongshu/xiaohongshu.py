@@ -93,6 +93,41 @@ def title_from_desc(desc: str, note_id: str = "") -> str:
     return cleaned[:40] or note_id or ""
 
 
+def _extract_xhs_live_url(img: dict) -> str | None:
+    """从笔记单图结构提取 Live 实况视频 URL（h264 / h265 / backupUrls 兜底）。"""
+    if not isinstance(img, dict):
+        return None
+    stream = img.get("stream")
+    if not isinstance(stream, dict):
+        return None
+
+    def _from_stream_list(items) -> str | None:
+        if not isinstance(items, list):
+            return None
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("masterUrl") or item.get("url") or item.get("mainUrl")
+            if url:
+                return url
+            backups = item.get("backupUrls") or item.get("backup_urls") or []
+            if isinstance(backups, list):
+                for bu in backups:
+                    if bu:
+                        return bu
+        return None
+
+    for codec_key in ("h264", "h265", "av1", "H264", "H265"):
+        url = _from_stream_list(stream.get(codec_key))
+        if url:
+            return url
+    for value in stream.values():
+        url = _from_stream_list(value)
+        if url:
+            return url
+    return None
+
+
 def is_watermarked_stream(stream: dict) -> bool:
     """判断视频流是否带水印。
 
@@ -545,13 +580,7 @@ class XhsClient:
 
                 live_url = None
                 if live_enabled:
-                    stream = img.get("stream")
-                    if isinstance(stream, dict):
-                        h264 = stream.get("h264")
-                        if isinstance(h264, list) and len(h264) > 0:
-                            item = h264[0]
-                            if isinstance(item, dict):
-                                live_url = item.get("masterUrl")
+                    live_url = _extract_xhs_live_url(img)
                 lives.append(live_url)
 
         video = None
@@ -1603,7 +1632,18 @@ def _do_xhs_download_thread(task_id: str, urls: list, account_name: str):
                             total_size += size
                             item["live"] = live_file.name
                         except Exception as e:
-                            print(f"Warning: Live Photo download failed: {e}")
+                            warn = f"第 {img_idx + 1} 张 Live 图下载失败: {e}"
+                            print(f"Warning: {warn}")
+                            with _download_lock:
+                                task = _download_tasks.get(task_id)
+                                if task:
+                                    task.setdefault("warnings", []).append(warn)
+                                    task["results"].append({
+                                        "title": f"{detail.get('title') or detail.get('note_id')} · Live#{img_idx + 1}",
+                                        "success": False,
+                                        "warning": True,
+                                        "error": warn,
+                                    })
 
                     image_items.append(item)
                     time.sleep(random.uniform(0.3, 0.8))

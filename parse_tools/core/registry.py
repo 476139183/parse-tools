@@ -40,7 +40,7 @@ class PlatformRegistry:
 
 
 def build_default_registry() -> PlatformRegistry:
-    from parse_tools.platforms import bilibili, channels, douyin, kuaishou, wechat, xiaohongshu
+    from parse_tools.platforms import alipay, bilibili, channels, douyin, kuaishou, wechat, weibo, xiaohongshu
     from parse_tools.services import proxy as proxy_svc
     from parse_tools.services import transcode, updater, waterwall
 
@@ -94,6 +94,19 @@ def build_default_registry() -> PlatformRegistry:
         name="哔哩哔哩",
         register=bilibili.register,
         modes=frozenset({"full"}),
+    ))
+    registry.add(PlatformSpec(
+        id="weibo",
+        name="微博",
+        register=weibo.register,
+        modes=frozenset({"full"}),
+    ))
+    registry.add(PlatformSpec(
+        id="alipay",
+        name="支付宝",
+        register=alipay.register,
+        modes=frozenset({"full"}),
+        enabled_labels=["生活号+ 图文 / 视频分享链接解析下载"],
     ))
     registry.add(PlatformSpec(
         id="transcode",
