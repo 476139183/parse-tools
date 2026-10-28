@@ -1,0 +1,374 @@
+/**
+ * 网址下载页面组件
+ */
+const DownloadPage = {
+    downloadTaskId: null,
+    _pollTimer: null,
+
+    render() {
+        return `
+            <div class="page-header">
+                <h2 class="page-title">网址下载</h2>
+                <p class="page-description">输入微信公众号文章 URL，直接下载文章内容（含图片和视频）</p>
+            </div>
+
+            <div class="card" style="margin-bottom: var(--spacing-lg);">
+                <div class="card-header">
+                    <h3 class="card-title">🔗 输入文章网址</h3>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">文章 URL（每行一个，支持批量下载）</label>
+                    <textarea class="form-textarea" id="url-input"
+                              placeholder="https://mp.weixin.qq.com/s/xxxxxx&#10;https://mp.weixin.qq.com/s/yyyyyy&#10;&#10;每行输入一个微信文章链接..."
+                              rows="6"></textarea>
+                    <div class="form-hint">支持 mp.weixin.qq.com 格式的文章链接，每行一个</div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="DownloadPage.startDownload()" id="btn-url-download">
+                        📥 开始下载
+                    </button>
+                    <button class="btn btn-secondary" onclick="DownloadPage.clearInput()">
+                        清空
+                    </button>
+                    <button class="btn btn-secondary" onclick="DownloadPage.pasteFromClipboard()">
+                        📋 粘贴
+                    </button>
+                </div>
+            </div>
+
+            <!-- 内容过滤 -->
+            <div class="card" style="margin-bottom: var(--spacing-lg);">
+                <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+                    <h3 class="card-title">🧹 内容过滤</h3>
+                    <span class="badge" id="cf-badge">加载中</span>
+                </div>
+
+                <div class="switch-group">
+                    <div class="switch-label">
+                        <span class="label-title">下载时自动过滤</span>
+                        <span class="label-desc">去掉广告块、二维码，以及被当作小节标题的横幅图片</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="cf-enabled">
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
+
+                <div class="grid grid-2" style="gap: 12px;">
+                    <div class="form-group">
+                        <label class="form-label" for="cf-ratio">横幅图宽高比阈值</label>
+                        <input type="number" class="form-input" id="cf-ratio" step="0.01" min="0.05" max="0.9">
+                        <div class="form-hint">微信图片 data-ratio = 高/宽；小节标题图通常 0.1~0.2，正文配图 ≥0.5</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="cf-min-width">最小宽度 (px)</label>
+                        <input type="number" class="form-input" id="cf-min-width" step="50" min="0">
+                        <div class="form-hint">宽度达到该值的图才会被判为横幅</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="cf-img-kw">图片关键词</label>
+                    <input type="text" class="form-input" id="cf-img-kw" placeholder="分割线、二维码、扫码">
+                    <div class="form-hint">图片的 alt / title / 文件名命中任一词即删除，逗号分隔</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="cf-text-kw">文本关键词</label>
+                    <input type="text" class="form-input" id="cf-text-kw" placeholder="点击上方蓝字、扫码关注">
+                    <div class="form-hint">200 字以内的短段落命中任一词即删除，逗号分隔</div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="DownloadPage.saveContentFilter()">保存过滤设置</button>
+                    <button class="btn btn-secondary" onclick="DownloadPage.applyFilterToExisting()">应用到已下载文章</button>
+                </div>
+            </div>
+
+            <!-- 下载进度 -->
+            <div id="url-download-progress" style="display: none;">
+                <div class="download-progress-card">
+                    <div class="download-progress-header" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 class="card-title" style="color: #000000;">📥 下载进度</h3>
+                            <span class="badge badge-info" id="url-download-badge">下载中</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button class="btn btn-secondary btn-sm" id="btn-cancel-url-download" onclick="DownloadPage.cancelDownload()" style="padding: 4px 10px; font-size: 0.85rem; color: #dc2626; border-color: #fca5a5;">
+                                ⏹️ 停止下载
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="DownloadPage.openFolder()" style="padding: 4px 10px; font-size: 0.85rem;">
+                                📂 打开下载目录
+                            </button>
+                        </div>
+                    </div>
+                    <div class="progress-bar" style="margin-top: 12px;">
+                        <div class="progress-fill" id="url-progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="download-progress-stats">
+                        <span>当前: <strong id="url-download-current">-</strong></span>
+                        <span>完成: <strong id="url-download-completed">0</strong></span>
+                        <span>失败: <strong id="url-download-failed">0</strong></span>
+                        <span>总计: <strong id="url-download-total">0</strong></span>
+                    </div>
+                    <div id="url-download-note" style="margin-top: 12px; color: var(--text-muted); font-size: 0.85rem;">
+                        下载完成后可在“下载历史”中查看文件列表。
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    destroy() {
+        if (this._pollTimer) {
+            clearInterval(this._pollTimer);
+            this._pollTimer = null;
+        }
+    },
+
+    // ── 内容过滤设置 ────────────────────────────────────────
+
+    async init() {
+        await this.loadContentFilter();
+    },
+
+    _cfValue(id) {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+    },
+
+    _cfSplitKeywords(raw) {
+        return String(raw || '')
+            .split(/[,，、\n]/)
+            .map(function (s) { return s.trim(); })
+            .filter(Boolean);
+    },
+
+    _setFilterBadge(enabled) {
+        const el = document.getElementById('cf-badge');
+        if (!el) return;
+        el.textContent = enabled ? '已开启' : '已关闭';
+        el.className = enabled ? 'badge badge-success' : 'badge';
+    },
+
+    async loadContentFilter() {
+        try {
+            const res = await API.get('/api/articles/content-filter', { showError: false });
+            const r = (res && res.rules) || {};
+            const banner = r.banner_images || {};
+
+            const en = document.getElementById('cf-enabled');
+            if (en) en.checked = r.enabled !== false;
+            const ratio = document.getElementById('cf-ratio');
+            if (ratio) ratio.value = (banner.max_ratio !== undefined) ? banner.max_ratio : 0.22;
+            const mw = document.getElementById('cf-min-width');
+            if (mw) mw.value = (banner.min_width !== undefined) ? banner.min_width : 500;
+            const ik = document.getElementById('cf-img-kw');
+            if (ik) ik.value = (r.remove_image_keywords || []).join('、');
+            const tk = document.getElementById('cf-text-kw');
+            if (tk) tk.value = (r.remove_text_keywords || []).join('、');
+
+            this._setFilterBadge(r.enabled !== false);
+        } catch (err) {
+            this._setFilterBadge(false);
+        }
+    },
+
+    async saveContentFilter() {
+        const enabled = !!document.getElementById('cf-enabled').checked;
+        let ratio = parseFloat(this._cfValue('cf-ratio'));
+        let minWidth = parseInt(this._cfValue('cf-min-width'), 10);
+        if (isNaN(ratio)) ratio = 0.22;
+        if (isNaN(minWidth)) minWidth = 500;
+        ratio = Math.min(Math.max(ratio, 0.05), 0.9);
+        minWidth = Math.max(minWidth, 0);
+
+        const rules = {
+            enabled: enabled,
+            banner_images: { enabled: enabled, max_ratio: ratio, min_width: minWidth },
+            remove_image_keywords: this._cfSplitKeywords(this._cfValue('cf-img-kw')),
+            remove_text_keywords: this._cfSplitKeywords(this._cfValue('cf-text-kw')),
+        };
+
+        try {
+            await API.post('/api/articles/content-filter', { rules: rules });
+            this._setFilterBadge(enabled);
+            Toast.success('过滤设置已保存，之后下载的文章生效');
+        } catch (err) {
+            // 错误提示由 API 层统一弹出
+        }
+    },
+
+    async applyFilterToExisting() {
+        try {
+            const preview = await API.post('/api/articles/content-filter/apply-existing', {});
+            if (!preview.changed) {
+                Toast.info('已扫描 ' + preview.scanned + ' 篇，没有需要改写的文章');
+                return;
+            }
+            Modal.confirm(
+                '应用到已下载文章',
+                '将扫描 ' + preview.scanned + ' 篇，改写 ' + preview.changed +
+                ' 篇（原文会备份为 .html.bak，正文会重算）。确定继续？',
+                async () => {
+                    try {
+                        const r = await API.post('/api/articles/content-filter/apply-existing', { dry_run: false });
+                        Toast.success('已改写 ' + r.changed + ' 篇');
+                    } catch (err) {
+                        // 错误提示由 API 层统一弹出
+                    }
+                }
+            );
+        } catch (err) {
+            // 错误提示由 API 层统一弹出
+        }
+    },
+
+    async startDownload() {
+        const textarea = document.getElementById('url-input');
+        const text = textarea?.value.trim();
+
+        if (!text) {
+            Toast.warning('请输入文章 URL');
+            return;
+        }
+
+        // 智能提取微信文章 URL（支持纯链接、多行链接、以及携带文字前缀后缀的分享内容）
+        const urlMatches = text.match(/https?:\/\/[^\s'"<>]+/g) || [];
+        let urls = urlMatches
+            .map(u => u.replace(/[)\]>，。]+$/, '').trim())
+            .filter(u => u.includes('mp.weixin.qq.com'));
+
+        if (urls.length === 0) {
+            urls = text.split('\n')
+                .map(u => u.trim())
+                .filter(u => u && (u.startsWith('http://') || u.startsWith('https://')));
+        }
+
+        if (urls.length === 0) {
+            Toast.warning('未检测到有效的微信公众号文章 URL');
+            return;
+        }
+
+        const btn = document.getElementById('btn-url-download');
+        btn.disabled = true;
+        btn.textContent = '启动中...';
+
+        const cancelBtn = document.getElementById('btn-cancel-url-download');
+        if (cancelBtn) {
+            cancelBtn.style.display = 'inline-block';
+            cancelBtn.disabled = false;
+            cancelBtn.textContent = '⏹️ 停止下载';
+        }
+
+        try {
+            const data = await API.articles.downloadByUrl(urls);
+            this.downloadTaskId = data.task_id;
+            Toast.success(data.message);
+
+            document.getElementById('url-download-progress').style.display = 'block';
+            this.startProgressPolling();
+        } catch (err) {
+            // error shown by API
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '📥 开始下载';
+        }
+    },
+
+    async cancelDownload() {
+        if (!this.downloadTaskId) return;
+        try {
+            await API.articles.cancelDownload(this.downloadTaskId);
+            Toast.info('已请求停止下载');
+            const cancelBtn = document.getElementById('btn-cancel-url-download');
+            if (cancelBtn) {
+                cancelBtn.disabled = true;
+                cancelBtn.textContent = '正在停止...';
+            }
+        } catch (err) {
+            // shown by API
+        }
+    },
+
+    startProgressPolling() {
+        if (this._pollTimer) clearInterval(this._pollTimer);
+
+        this._pollTimer = setInterval(async () => {
+            try {
+                const task = await API.articles.downloadStatus(this.downloadTaskId);
+                this.updateProgress(task);
+
+                if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+                    clearInterval(this._pollTimer);
+                    this._pollTimer = null;
+                }
+            } catch (err) {
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
+            }
+        }, 1000);
+    },
+
+    updateProgress(task) {
+        const total = task.total || 1;
+        const completed = task.completed || 0;
+        const failed = task.failed || 0;
+        const progress = Math.round(((completed + failed) / total) * 100);
+
+        document.getElementById('url-progress-bar').style.width = `${progress}%`;
+        document.getElementById('url-download-current').textContent = task.current || '-';
+        document.getElementById('url-download-completed').textContent = completed;
+        document.getElementById('url-download-failed').textContent = failed;
+        document.getElementById('url-download-total').textContent = total;
+
+        const badge = document.getElementById('url-download-badge');
+        const cancelBtn = document.getElementById('btn-cancel-url-download');
+
+        if (task.status === 'completed') {
+            badge.className = 'badge badge-success';
+            badge.textContent = '已完成';
+            if (cancelBtn) cancelBtn.style.display = 'none';
+            Toast.success(`下载完成！成功 ${completed} 篇，失败 ${failed} 篇`);
+        } else if (task.status === 'failed') {
+            badge.className = 'badge badge-error';
+            badge.textContent = '失败';
+            if (cancelBtn) cancelBtn.style.display = 'none';
+        } else if (task.status === 'cancelled') {
+            badge.className = 'badge badge-warning';
+            badge.textContent = '已停止';
+            if (cancelBtn) cancelBtn.style.display = 'none';
+        }
+
+        const note = document.getElementById('url-download-note');
+        if (note && task.status === 'completed') {
+            note.innerHTML = '下载完成。请到 <a href="#history" style="color: var(--primary); text-decoration: none;">下载历史</a> 查看文件列表。';
+        }
+    },
+
+    clearInput() {
+        document.getElementById('url-input').value = '';
+    },
+
+    async pasteFromClipboard() {
+        try {
+            const text = await navigator.clipboard.readText();
+            document.getElementById('url-input').value = text;
+            Toast.success('已粘贴剪贴板内容');
+        } catch (err) {
+            Toast.warning('无法读取剪贴板，请手动粘贴');
+        }
+    },
+
+    async openFolder() {
+        try {
+            await API.articles.openFolder('url_download');
+            Toast.success('下载目录已打开');
+        } catch (err) {
+            // shown by API
+        }
+    },
+
+};

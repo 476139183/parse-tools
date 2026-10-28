@@ -1,0 +1,350 @@
+# -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
+from pathlib import Path
+
+_spec_dir = globals().get('SPECPATH')
+project_root = os.path.abspath(os.path.join(_spec_dir, '..', '..')) if _spec_dir else os.path.abspath('.')
+
+
+def macos_target_arch(value=None):
+    """Return an explicit PyInstaller macOS architecture, or None for native builds."""
+    if sys.platform != 'darwin':
+        return None
+    requested = (
+        value or os.environ.get('WECHAT_MP_TOOLS_TARGET_ARCH', '')
+    ).strip().lower()
+    if not requested:
+        return None
+    if requested not in {'arm64', 'x86_64'}:
+        raise ValueError(
+            'WECHAT_MP_TOOLS_TARGET_ARCH must be arm64 or x86_64 on macOS'
+        )
+    return requested
+
+# ── 资源文件配置 ──────────────────────────────────────────
+# 收集静态前端文件夹到包中
+datas = [
+    (os.path.join(project_root, 'parse_tools', 'frontend'), 'frontend'),
+    (os.path.join(project_root, 'ops', 'injection'), os.path.join('ops', 'injection')),
+]
+
+mac_assets_dir = os.path.join(project_root, 'ops', 'automation', 'mac', 'assets')
+if os.path.isdir(mac_assets_dir):
+    datas.append((mac_assets_dir, os.path.join('ops', 'automation', 'mac', 'assets')))
+
+playwright_browsers = os.path.join(project_root, 'ms-playwright')
+bundle_browser = os.environ.get('WECHAT_MP_TOOLS_BUNDLE_BROWSER', '1') != '0'
+if bundle_browser and os.path.isdir(playwright_browsers):
+    datas.append((playwright_browsers, 'ms-playwright'))
+
+# ── WebView2 引导安装程序：Windows 端内置，启动时自动检测并一键安装 ──
+webview2_bootstrapper_dir = os.path.join(project_root, 'webview2_bootstrapper')
+webview2_bootstrapper_exe = os.path.join(webview2_bootstrapper_dir, 'MicrosoftEdgeWebview2Setup.exe')
+if sys.platform == 'win32' and os.path.isfile(webview2_bootstrapper_exe):
+    datas.append((webview2_bootstrapper_dir, 'webview2_bootstrapper'))
+
+# ── binaries 列表（Windows 平台会追加 .NET DLL）──
+binaries = []
+
+# ── mitmproxy：用于视频号/公众号的 TLS 拦截代理，需完整收集其
+#    隐藏子模块、数据文件与原生扩展(mitmproxy_rs 等),否则冻结后启动代理失败 ──
+try:
+    from PyInstaller.utils.hooks import collect_all
+    for _pkg in ('mitmproxy', 'mitmproxy_rs', 'publicsuffix2', 'curl_cffi'):
+        _d, _b, _h = collect_all(_pkg)
+        datas += _d
+        binaries += _b
+except Exception as _e:
+    print(f"[spec] mitmproxy collect_all failed: {_e}")
+
+# ── 依赖配置 ──────────────────────────────────────────────
+hiddenimports = [
+    'curl_cffi',
+    'flask',
+    'flask_cors',
+    'requests',
+    'urllib3',
+    'playwright',
+    'playwright.sync_api',
+    'socks',
+    'bs4',
+    'soupsieve',
+    'jinja2',
+    'werkzeug',
+    'click',
+    'itsdangerous',
+    'backend',
+    'backend.config',
+    'backend.auth',
+    'backend.accounts',
+    'backend.account_pool',
+    'backend.account_pool_api',
+    'backend.weread_browser',
+    'backend.weread_signer',
+    'backend.articles',
+    'backend.rss_feed',
+    'backend.avatar_cache',
+    'backend.content_filter',
+    'backend.proxy',
+    'backend.douyin',
+    'backend.douyin_login',
+    'backend.douyin_auth',
+    'backend.douyin_sign',
+    'backend.downloader',
+    'backend.sign',
+    'backend.runtime',
+    'backend.channels',
+    'backend.rss_scheduler',
+    'backend.transcode',
+    'backend.kuaishou',
+    'backend.kuaishou_auth',
+    'backend.xiaohongshu',
+    'backend.xiaohongshu_login',
+    'backend.bilibili',
+    'backend.bilibili_login',
+    'backend.bilibili_sign',
+    'backend.updater',
+    'backend.cred_redact',
+    'backend.refresh_queue',
+    'backend.proxy_worker',
+    'scripts',
+    'scripts.auto_refresh_pc_wechat',
+    'yaml',
+    'httpx',
+    'sniffio',
+    'httpcore',
+    'h11',
+    'mitmproxy',
+    'mitmproxy.tools.dump',
+    
+    # pywebview 核心支持
+    'webview',
+    'webview.platforms',
+]
+
+# macOS Cocoa 支持与自动化模块
+if sys.platform == 'darwin':
+    hiddenimports.extend([
+        'mac',
+        'mac.article_finder',
+        'mac.batch_runner',
+        'mac.mac_as',
+        'mac.mac_input',
+        'mac.mac_ocr',
+        'mac.mac_win',
+        'mac.main_mac',
+        'mac.scale',
+        'mac.waiter',
+        'mac.steps',
+        'mac.steps.step1_launch',
+        'mac.steps.step2_search',
+        'mac.steps.step3_open_article',
+        'mac.steps.step4_cleanup',
+        'webview.platforms.cocoa',
+        'objc',
+        'Cocoa',
+        'Foundation',
+        'WebKit',
+    ])
+
+# Windows WebView2 (winforms) 支持与自动化模块
+if sys.platform == 'win32':
+    hiddenimports.extend([
+        'windows',
+        'windows.win_batch_runner',
+        'windows.win_flow',
+        'windows.win_input',
+        'windows.win_window',
+        'pythonnet',
+        'clr',
+        'clr_loader',
+        'webview.platforms.winforms',
+        'webview.platforms.edgechromium',
+    ])
+
+    # ── 关键修复：收集 pythonnet / clr_loader 的原生 .NET DLL ──
+    # PyInstaller hiddenimports 不会自动收集 .NET 运行时 DLL，
+    # 必须完整收集否则打包后 pywebview WinForms 后端初始化失败 → 白屏/加载中
+    try:
+        from PyInstaller.utils.hooks import collect_all
+        for pkg in ('clr_loader', 'pythonnet'):
+            _d, _b, _h = collect_all(pkg)
+            datas += _d
+            binaries += _b
+            hiddenimports += _h
+    except Exception:
+        try:
+            from PyInstaller.utils.hooks import collect_dynamic_libs
+            for pkg in ('clr_loader', 'pythonnet'):
+                dlls = collect_dynamic_libs(pkg)
+                binaries.extend(dlls)
+        except Exception:
+            # PyInstaller 版本过老时 fallback：手动扫描 clr_loader 目录
+            import clr_loader
+            clr_path = os.path.dirname(clr_loader.__file__)
+            for root, dirs, files in os.walk(clr_path):
+                for f in files:
+                    if f.endswith(('dll', 'so', 'pyd')):
+                        src = os.path.join(root, f)
+                        dst = os.path.relpath(src, os.path.dirname(clr_loader.__file__))
+                        binaries.append((src, os.path.join('clr_loader', dst)))
+
+block_cipher = None
+
+a = Analysis(
+    ['main.py'],  # ── 入口点修改为 main.py ──
+    pathex=[project_root],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'tkinter',
+        '_tkinter',
+        'tcl',
+        'tk',
+        'FixTk',
+        'PySide6',
+        'PyQt5',
+        'PyQt6',
+        'PySide2',
+        'qtpy',
+        'qfluentwidgets',
+        'torch',
+        'torchvision',
+        'paddle',
+        'paddleocr',
+        'paddlex',
+        'cv2',
+        'numpy',
+        'scipy',
+        'pandas',
+        'matplotlib',
+        'skimage',
+        'vendor.subtitle_remover',
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+# ── 平台打包输出配置 ───────────────────────────────────────
+
+if sys.platform == 'darwin':
+    # macOS 打包配置：打包为双击运行的 .app 捆绑包
+    exe = EXE(
+        pyz,
+        a.scripts,
+        exclude_binaries=True,
+        name='Parse Tools',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        console=False,  # 完全不显示后台终端窗口，纯 native 体验
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=macos_target_arch(),
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+    coll = BUNDLE(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='Parse Tools.app',
+        bundle_identifier='com.parse.tools',
+        info_plist={
+            'NSPrincipalClass': 'NSApplication',
+            'NSHighResolutionCapable': 'True',
+            'CFBundleName': 'Parse Tools',
+            'CFBundleDisplayName': 'Parse Tools',
+        }
+    )
+elif sys.platform == 'win32':
+    # Windows 打包配置：打包为绿色免安装文件夹
+    # ── 关键修复：Windows 端禁用 UPX 压缩 ──
+    # UPX 会损坏 pythonnet / clr_loader 的 .NET DLL，导致 WebView2 后端初始化失败
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name='Parse Tools',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,  # 禁用 UPX，避免 .NET DLL 被损坏
+        upx_exclude=[],
+        console=False,  # ── 关键修改：Windows 端也完全关闭黑窗口控制台 ──
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,  # ── 关键修复：Windows 端 COLLECT 必须禁用 UPX，否则损坏 .NET 运行库 (Python.Runtime.dll) 导致无法启动
+        upx_exclude=['*.dll', 'Python.Runtime.dll', 'clr_loader*'],
+        name='Parse Tools',
+    )
+    # 自动生成 .NET 运行时配置，解除 Windows 网络下载 DLL 锁定 (loadFromRemoteSources)
+    try:
+        dist_app_dir = os.path.join(project_root, 'dist', 'Parse Tools')
+        os.makedirs(dist_app_dir, exist_ok=True)
+        config_path = os.path.join(dist_app_dir, 'Parse Tools.exe.config')
+        with open(config_path, 'w', encoding='utf-8') as _cfg_f:
+            _cfg_f.write(
+                '<?xml version="1.0" encoding="utf-8" ?>\n'
+                '<configuration>\n'
+                '  <runtime>\n'
+                '    <loadFromRemoteSources enabled="true"/>\n'
+                '  </runtime>\n'
+                '</configuration>\n'
+            )
+    except Exception as _cfg_e:
+        print(f"[spec] Notice: could not pre-create Parse Tools.exe.config: {_cfg_e}")
+else:
+    # Linux 平台打包配置
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name='parse_tools',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        console=False,  # 纯窗口运行
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='parse_tools',
+    )
