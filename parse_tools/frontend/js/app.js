@@ -27,10 +27,13 @@ const App = {
         // 初始化路由
         Router.init();
 
-        // 平台轨道 + 快捷解析
+        // 平台轨道 + 侧栏折叠 + 快捷解析
         this.initPlatformRail();
+        this.initSidebarToggle();
         this.initQuickParse();
-        this.selectPlatformGroup('wechat', { expandOnly: true });
+        // 按当前路由同步平台条，勿写死公众号（否则 #ks_* 首屏会被冲回公众号小分类）
+        const bootKey = (window.location.hash.slice(1) || 'login').split('?')[0];
+        this.selectPlatformGroup(this.groupForPage(bootKey), { expandOnly: true, activePage: bootKey });
 
         // 启动定时状态检查 (每 30 秒检查一次登录态)
         setInterval(() => this.checkAuthStatus(), 30000);
@@ -180,50 +183,104 @@ const App = {
 
     platformGroups: ['wechat', 'wechat_channels', 'douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'weibo', 'alipay', 'common'],
 
+    platformDefaults: {
+        wechat: 'login',
+        wechat_channels: 'channels',
+        douyin: 'dy_parse',
+        kuaishou: 'ks_parse',
+        xiaohongshu: 'xhs_download',
+        bilibili: 'bili_download',
+        weibo: 'weibo_parse',
+        alipay: 'alipay_parse',
+        common: 'settings',
+    },
+
     initPlatformRail() {
         document.querySelectorAll('.platform-chip[data-group]').forEach((chip) => {
             chip.addEventListener('click', () => {
                 const group = chip.getAttribute('data-group');
-                this.selectPlatformGroup(group);
-                // 跳到该平台默认首页
-                const defaults = {
-                    wechat: 'login',
-                    wechat_channels: 'channels',
-                    douyin: 'dy_parse',
-                    kuaishou: 'ks_parse',
-                    xiaohongshu: 'xhs_download',
-                    bilibili: 'bili_download',
-                    weibo: 'weibo_parse',
-                    alipay: 'alipay_parse',
-                    common: 'settings',
-                };
-                const target = defaults[group];
-                if (target && window.Router) Router.navigate(target);
+                this.switchToPlatform(group);
             });
         });
         // 兼容旧手风琴标题（若仍存在）
         document.querySelectorAll('.nav-group-title').forEach((header) => {
             header.addEventListener('click', () => {
                 const group = header.getAttribute('data-group');
-                if (group) this.selectPlatformGroup(group);
+                if (group) this.switchToPlatform(group);
             });
         });
     },
 
+    /** 切换左侧平台：同步小分类，并强制跳到该平台默认页（更新右侧主内容） */
+    switchToPlatform(group) {
+        if (!group) return;
+        const target = this.platformDefaults[group];
+        this.selectPlatformGroup(group, { activePage: target || null });
+        if (!target || typeof Router === 'undefined') return;
+
+        const hashKey = (window.location.hash.slice(1) || '').split('?')[0];
+        if (Router.currentKey === target && hashKey === target) {
+            Router.refreshCurrent();
+        } else {
+            Router.navigate(target);
+        }
+
+        const main = document.getElementById('main-content');
+        if (main) main.scrollTop = 0;
+    },
+
+    initSidebarToggle() {
+        const KEY = 'parse_tools_sidebar_collapsed';
+        const shell = document.getElementById('app');
+        const btn = document.getElementById('btn-sidebar-toggle');
+        if (!shell || !btn) return;
+
+        const apply = (collapsed) => {
+            shell.classList.toggle('sidebar-collapsed', collapsed);
+            btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            btn.title = collapsed ? '展开侧栏' : '收起侧栏';
+            try {
+                localStorage.setItem(KEY, collapsed ? '1' : '0');
+            } catch (e) { /* ignore */ }
+        };
+
+        let collapsed = false;
+        try {
+            collapsed = localStorage.getItem(KEY) === '1';
+        } catch (e) { /* ignore */ }
+        apply(collapsed);
+
+        btn.addEventListener('click', () => {
+            apply(!shell.classList.contains('sidebar-collapsed'));
+        });
+    },
+
     selectPlatformGroup(targetGroup, options = {}) {
+        if (!targetGroup) return;
         this.platformGroups.forEach((g) => {
             const itemsEl = document.getElementById(`items-${g}`);
             const titleEl = document.querySelector(`.nav-group-title[data-group="${g}"]`);
             const arrowEl = titleEl ? titleEl.querySelector('.group-arrow') : null;
             const chip = document.querySelector(`.platform-chip[data-group="${g}"]`);
             const active = g === targetGroup;
-            if (itemsEl) itemsEl.classList.toggle('collapsed', !active);
+            if (itemsEl) {
+                itemsEl.classList.toggle('collapsed', !active);
+                itemsEl.hidden = !active;
+                itemsEl.setAttribute('aria-hidden', active ? 'false' : 'true');
+            }
             if (arrowEl) arrowEl.textContent = active ? '▼' : '▶';
-            if (chip) chip.classList.toggle('active', active);
+            if (chip) {
+                chip.classList.toggle('active', active);
+                chip.setAttribute('aria-pressed', active ? 'true' : 'false');
+            }
         });
-        if (!options.expandOnly) {
-            document.body.dataset.platform = targetGroup;
+        // 切换平台时同步小分类高亮到目标页（避免仍亮着上一平台的项）
+        if (options.activePage) {
+            document.querySelectorAll('.nav-item[data-page]').forEach((item) => {
+                item.classList.toggle('active', item.getAttribute('data-page') === options.activePage);
+            });
         }
+        document.body.dataset.platform = targetGroup;
     },
 
     toggleNavGroup(targetGroup) {
@@ -761,6 +818,9 @@ const App = {
         return div.innerHTML;
     }
 };
+
+// const 不会挂到 window；router / 内联 onclick 等处会读 window.App
+window.App = App;
 
 // 页面加载完成后启动应用
 document.addEventListener('DOMContentLoaded', () => {

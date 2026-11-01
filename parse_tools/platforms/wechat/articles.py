@@ -767,38 +767,45 @@ def download_by_url():
     if not extracted_urls:
         return jsonify({"error": "未检测到有效的微信公众号文章链接"}), 400
 
-    extracted_urls = list(dict.fromkeys(normalize_wechat_short_url(u) for u in extracted_urls))
+    from parse_tools.platforms.wechat.downloader import clean_wechat_article_url, resolve_review_id
 
-    # 批量将长链接预解析为免风控的标准短链与 reviewId
+    # 规范化：短链修复 + 去掉 image_detail/分享参数，避免多链接时后几篇直接进验证码页
+    extracted_urls = list(dict.fromkeys(
+        clean_wechat_article_url(normalize_wechat_short_url(u)) for u in extracted_urls
+    ))
+
+    # 批量预解析 reviewId / 短链（短链优先走微信读书正文，避开验证码）
     url_info_map = {}
-    long_urls_to_resolve = [u for u in extracted_urls if "__biz=" in u]
-    if long_urls_to_resolve:
+    if extracted_urls:
         try:
             from parse_tools.platforms.wechat.account_pool import borrow_weread_session, get_weread_session
-            acc_id, vid, tok, h = borrow_weread_session()
+            _acc_id, _vid, _tok, h = borrow_weread_session()
             s = get_weread_session()
-            res = s.post("https://i.weread.qq.com/mp/getreviewid", json={"urls": long_urls_to_resolve}, headers=h, timeout=8).json()
-            for r_item in res.get("reviewIds", []):
+            res = s.post(
+                "https://i.weread.qq.com/mp/getreviewid",
+                json={"urls": extracted_urls},
+                headers=h,
+                timeout=12,
+            ).json()
+            for r_item in res.get("reviewIds", []) or []:
                 orig_u = r_item.get("url", "")
                 rid = r_item.get("reviewId", "")
                 short_id = short_id_from_review_id(rid)
-                if short_id:
-                    url_info_map[orig_u] = {
-                        "short_url": f"https://mp.weixin.qq.com/s/{short_id}",
-                        "review_id": rid,
-                    }
+                info = {"review_id": rid}
+                if short_id and not str(short_id).startswith("WR"):
+                    info["short_url"] = f"https://mp.weixin.qq.com/s/{short_id}"
+                if orig_u:
+                    url_info_map[orig_u] = info
+                    # 同时按清洗后的 key 索引
+                    url_info_map[clean_wechat_article_url(orig_u)] = info
         except Exception as e:
-            logger.debug(f"[download_by_url] 批量预解析短链异常: {e}")
+            logger.info("[download_by_url] 批量预解析 reviewId 异常: %s", e)
 
     articles = []
     for i, raw_u in enumerate(extracted_urls):
-        mapped = url_info_map.get(raw_u, {})
+        mapped = url_info_map.get(raw_u) or url_info_map.get(clean_wechat_article_url(raw_u)) or {}
         short_u = mapped.get("short_url")
-        rid = mapped.get("review_id", "")
-        if not rid and "/s/" in raw_u and "__biz=" not in raw_u:
-            sid_match = re.search(r'/s/([A-Za-z0-9_-]{15,})', raw_u)
-            if sid_match:
-                rid = f"MP_WXS_0_{sid_match.group(1)}"
+        rid = mapped.get("review_id", "") or resolve_review_id(raw_u)
 
         articles.append({
             "title": f"article_{i+1}",
@@ -1212,10 +1219,10 @@ def _do_batch_download(task_id: str, articles: list, account_name: str):
                         "title": title, "success": False, "error": error_msg
                     })
 
-            real_account = result.get("source")
-            if not real_account or real_account == "url_download":
-                real_account = account_name if account_name != "url_download" else "链接下载"
-            # 记录到下载历史
+            real_account = (result.get("source") or "").strip()
+            if not real_account or real_account in ("url_download",):
+                real_account = "链接下载" if account_name == "url_download" else account_name
+            # 记录到下载历史（path 与 account 目录对齐：公众号名/文章名）
             hist_entry = {
                 "title": title,
                 "link": normalize_wechat_short_url(article.get("original_url") or link),

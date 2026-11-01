@@ -241,27 +241,13 @@ const Router = {
             }
         });
 
-        let activeGroup = 'wechat'; // 默认微信
-        if (activeKey.startsWith('dy_')) {
-            activeGroup = 'douyin';
-        } else if (activeKey.startsWith('xhs_')) {
-            activeGroup = 'xiaohongshu';
-        } else if (activeKey.startsWith('ks_')) {
-            activeGroup = 'kuaishou';
-        } else if (activeKey.startsWith('bili_')) {
-            activeGroup = 'bilibili';
-        } else if (activeKey.startsWith('weibo_')) {
-            activeGroup = 'weibo';
-        } else if (activeKey.startsWith('alipay_')) {
-            activeGroup = 'alipay';
-        } else if (activeKey.startsWith('channels_') || activeKey === 'channels') {
-            activeGroup = 'wechat_channels';
-        } else if (['transcode', 'proxy', 'settings'].includes(activeKey)) {
-            activeGroup = 'common';
-        }
+        // 与平台芯片共用同一套分组规则，保证小分类与当前页同步
+        const activeGroup = (window.App && typeof App.groupForPage === 'function')
+            ? App.groupForPage(activeKey)
+            : 'wechat';
 
         if (window.App && typeof App.selectPlatformGroup === 'function') {
-            App.selectPlatformGroup(activeGroup, { expandOnly: true });
+            App.selectPlatformGroup(activeGroup, { expandOnly: true, activePage: activeKey });
             return;
         }
 
@@ -271,20 +257,13 @@ const Router = {
             const titleEl = document.querySelector(`.nav-group-title[data-group="${g}"]`);
             const arrowEl = titleEl ? titleEl.querySelector('.group-arrow') : null;
             const chip = document.querySelector(`.platform-chip[data-group="${g}"]`);
-            
-            if (g === activeGroup) {
-                if (itemsEl) {
-                    itemsEl.classList.remove('collapsed');
-                    if (arrowEl) arrowEl.textContent = '▼';
-                }
-                if (chip) chip.classList.add('active');
-            } else {
-                if (itemsEl) {
-                    itemsEl.classList.add('collapsed');
-                    if (arrowEl) arrowEl.textContent = '▶';
-                }
-                if (chip) chip.classList.remove('active');
+            const active = g === activeGroup;
+            if (itemsEl) {
+                itemsEl.classList.toggle('collapsed', !active);
+                itemsEl.hidden = !active;
             }
+            if (arrowEl) arrowEl.textContent = active ? '▼' : '▶';
+            if (chip) chip.classList.toggle('active', active);
         });
     },
 
@@ -294,6 +273,14 @@ const Router = {
             const qs = new URLSearchParams(params).toString();
             if (qs) hash += '?' + qs;
         }
+        // 同源 hash 不会触发 hashchange，需手动走一遍路由
+        if (window.location.hash === hash) {
+            this.handleRouting();
+            return;
+        }
         window.location.hash = hash;
     }
 };
+
+// const 不会挂到 window 上；芯片切换 / 快捷解析等处会读 window.Router
+window.Router = Router;

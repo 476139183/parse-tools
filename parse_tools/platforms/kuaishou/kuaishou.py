@@ -524,6 +524,227 @@ class KuaishouClient:
             next_pcursor = str(target_page + 1)
         return items, next_pcursor
 
+    def get_self_tab_feed_via_browser(self, tab: str, pcursor: str = ""):
+        """抓取自己主页的「点赞 / 收藏」列表。
+
+        必须使用设置里保存的 Cookie（用户从日常 Chrome 粘贴的那份），
+        绝不能复用 ks_browser_profile：那是另一套会话，会把有效 Cookie 场景搞乱。
+
+        tab: liked -> /rest/v/feed/liked ； collect -> /rest/v/collect/list
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+            from parse_tools.core.runtime import launch_chromium
+            from parse_tools.platforms.kuaishou.kuaishou_auth import validate_kuaishou_www_login
+        except ImportError:
+            raise Exception("未安装 Playwright 依赖，无法启用浏览器抓取模式")
+
+        tab = (tab or "").strip().lower()
+        if tab not in ("liked", "collect"):
+            raise Exception("tab 仅支持 liked / collect")
+
+        settings = get_settings()
+        cookie_str = settings.get("kuaishou_cookie", "").strip()
+        if not cookie_str:
+            _notify_login_expired(True)
+            raise Exception("需要快手登录凭证。请从日常 Chrome 粘贴 www Cookie。")
+
+        cookie_uid = ""
+        m = re.search(r"(?:^|;\s*)userId=([^;]+)", cookie_str)
+        if m:
+            cookie_uid = m.group(1).strip()
+        if not cookie_uid:
+            raise Exception("Cookie 中缺少 userId，请重新获取登录。")
+
+        ok, profile_eid, msg = validate_kuaishou_www_login(cookie_str=cookie_str)
+        if not ok:
+            _notify_login_expired(True)
+            raise Exception(msg or "快手登录已失效，请重新粘贴 Cookie。")
+
+        path_key = "/rest/v/feed/liked" if tab == "liked" else "/rest/v/collect/list"
+        tab_label = "点赞" if tab == "liked" else "收藏"
+        profile_key = profile_eid or cookie_uid
+        captured = []
+        target_page = 1
+
+        def _fetch_in_page(page, api_user_id: str):
+            js = """
+            async ({ apiPath, userId, pcursor }) => {
+              const body = new URLSearchParams();
+              body.set('userId', String(userId || ''));
+              body.set('pcursor', String(pcursor || ''));
+              body.set('page', '1');
+              const resp = await fetch(apiPath, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+                credentials: 'include',
+              });
+              const text = await resp.text();
+              try { return JSON.parse(text); } catch (e) {
+                return { result: -1, error_msg: text.slice(0, 200) };
+              }
+            }
+            """
+            return page.evaluate(
+                js,
+                {"apiPath": path_key, "userId": api_user_id, "pcursor": pcursor or ""},
+            )
+
+        def _run_with_context(context):
+            nonlocal target_page
+            page = context.pages[0] if context.pages else context.new_page()
+
+            def on_res(resp):
+                if path_key in resp.url and resp.status == 200:
+                    try:
+                        data = resp.json()
+                        if isinstance(data, dict):
+                            captured.append(data)
+                    except Exception:
+                        pass
+
+            page.on("response", on_res)
+
+            for url in (
+                "https://www.kuaishou.com/new-reco",
+                f"https://www.kuaishou.com/profile/{profile_key}",
+            ):
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                    break
+                except Exception:
+                    continue
+            page.wait_for_timeout(1800)
+
+            try:
+                data = _fetch_in_page(page, cookie_uid)
+                if isinstance(data, dict):
+                    captured.append(data)
+            except Exception:
+                pass
+
+            if not captured or (
+                isinstance(captured[-1], dict)
+                and captured[-1].get("result") not in (1, None)
+                and "feeds" not in captured[-1]
+            ):
+                try:
+                    page.goto(
+                        f"https://www.kuaishou.com/profile/{profile_key}",
+                        wait_until="domcontentloaded",
+                        timeout=45000,
+                    )
+                except Exception:
+                    pass
+                page.wait_for_timeout(2000)
+                for text, exact in (
+                    (tab_label, True),
+                    (tab_label, False),
+                    ("喜欢", True),
+                    ("赞过", False),
+                ):
+                    try:
+                        loc = page.get_by_text(text, exact=exact)
+                        if loc.count() > 0:
+                            loc.first.click(timeout=4000)
+                            break
+                    except Exception:
+                        continue
+                for _ in range(40):
+                    if captured:
+                        break
+                    page.wait_for_timeout(400)
+                if not captured:
+                    try:
+                        data = _fetch_in_page(page, cookie_uid)
+                        if isinstance(data, dict):
+                            captured.append(data)
+                    except Exception as e:
+                        raise Exception(
+                            f"主页未找到「{tab_label}」入口，且接口直拉失败: {e}"
+                        ) from e
+
+            target_page = 1
+            if pcursor:
+                try:
+                    target_page = max(1, int(pcursor))
+                except ValueError:
+                    target_page = 2
+
+            if target_page > 1:
+                for _ in range(target_page - 1):
+                    before = len(captured)
+                    for _ in range(10):
+                        try:
+                            page.evaluate("window.scrollBy(0, 1800)")
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(700)
+                        if len(captured) > before:
+                            break
+            return target_page
+
+        with sync_playwright() as p:
+            browser = launch_chromium(
+                p.chromium,
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            try:
+                context = browser.new_context(
+                    user_agent=USER_AGENT,
+                    viewport={"width": 1400, "height": 900},
+                )
+                context.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
+                cookie_objs = []
+                for part in cookie_str.split(";"):
+                    part = part.strip()
+                    if "=" not in part:
+                        continue
+                    k, _, v = part.partition("=")
+                    k, v = k.strip(), v.strip()
+                    if not k or not v:
+                        continue
+                    domain = "id.kuaishou.com" if k == "passToken" else ".kuaishou.com"
+                    cookie_objs.append({
+                        "name": k, "value": v, "domain": domain, "path": "/",
+                    })
+                context.add_cookies(cookie_objs)
+                target_page = _run_with_context(context)
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+        if not captured:
+            raise Exception(
+                f"未能获取「{tab_label}」列表。请确认已登录，且该列表有内容。"
+            )
+
+        latest = captured[-1]
+        result = latest.get("result")
+        if result == 109 or latest.get("loginUrl"):
+            _notify_login_expired(True)
+            raise Exception("登录已失效，请重新粘贴 Cookie。")
+        if result == 50:
+            raise Exception("快手签名校验失败，请稍后重试或重新登录。")
+        if result not in (1, None) and "feeds" not in latest:
+            err = latest.get("error_msg") or latest.get("errorMsg") or f"result={result}"
+            raise Exception(f"获取「{tab_label}」列表失败 ({err})")
+
+        _notify_login_expired(False)
+        items = latest.get("feeds") or []
+        api_cursor = latest.get("pcursor") or ""
+        if not items or api_cursor in ("no_more", "NO_MORE"):
+            next_pcursor = ""
+        else:
+            next_pcursor = str(target_page + 1)
+        return items, next_pcursor, cookie_uid
+
     def get_user_feed(self, user_id: str, pcursor: str = ""):
         """获取用户公开作品列表，返回 (list, next_pcursor)
 
@@ -1503,6 +1724,45 @@ def open_parent():
         return jsonify({"message": "已打开"})
     except Exception as e:
         return jsonify({"error": f"打开失败: {str(e)}"}), 500
+
+
+# ── 我的点赞 / 收藏 ──────────────────────────────────────────
+
+def _self_tab_feed_response(tab: str):
+    data = request.get_json(silent=True) or {}
+    # 兼容 GET query
+    pcursor = (
+        (data.get("pcursor") if isinstance(data, dict) else None)
+        or request.args.get("pcursor")
+        or ""
+    )
+    try:
+        client = KuaishouClient()
+        raw_items, next_pcursor, user_id = client.get_self_tab_feed_via_browser(tab, pcursor)
+        items = [KuaishouClient.parse_media_info(it) for it in raw_items]
+        has_more = bool(next_pcursor and next_pcursor not in ("no_more", "NO_MORE", ""))
+        return jsonify({
+            "tab": tab,
+            "user_id": user_id,
+            "items": items,
+            "pcursor": next_pcursor,
+            "has_more": has_more,
+            "total": len(items),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@kuaishou_bp.route("/liked", methods=["GET", "POST"])
+def self_liked_feed():
+    """自己的点赞列表（官方 Tab「点赞」→ /rest/v/feed/liked）"""
+    return _self_tab_feed_response("liked")
+
+
+@kuaishou_bp.route("/collected", methods=["GET", "POST"])
+def self_collected_feed():
+    """自己的收藏列表（官方 Tab「收藏」→ /rest/v/collect/list）"""
+    return _self_tab_feed_response("collect")
 
 
 # ── 快手作者管理（收藏/查询/删除） ─────────────────────────────

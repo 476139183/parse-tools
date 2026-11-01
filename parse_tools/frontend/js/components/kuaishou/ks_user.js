@@ -120,8 +120,8 @@ const KsUserPage = {
             const msg = err.message || '';
             if (msg.includes('登录凭证') || msg.includes('扫码登录') || msg.includes('未登录')) {
                 Modal.confirm(
-                    '需要扫码登录快手',
-                    '快手官方现已限制用户主页作品浏览需要快手账号登录凭证。<br><br>当前快手尚未登录或登录已失效，是否立即前往扫码登录？',
+                    '需要快手网页登录凭证',
+                    '主页作品列表需要有效的 www Cookie。<br><br>请优先粘贴 Cookie（避免扫码挤下线手机）。是否前往登录页？',
                     () => {
                         Router.navigate('ks_login');
                     }
@@ -159,8 +159,8 @@ const KsUserPage = {
             const msg = err.message || '';
             if (msg.includes('登录凭证') || msg.includes('扫码登录')) {
                 Modal.confirm(
-                    '需要扫码登录快手',
-                    '快手限制未登录用户只能浏览首批作品。若需分页「加载更多」或翻页浏览全部作品，请先扫码登录快手账号。<br><br>是否立即前往扫码登录页面？',
+                    '需要快手网页登录凭证',
+                    '加载更多作品需要有效的 www Cookie。<br><br>请优先粘贴 Cookie（避免扫码挤下线手机）。是否前往登录页？',
                     () => {
                         Router.navigate('ks_login');
                     }

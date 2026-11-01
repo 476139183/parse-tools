@@ -944,24 +944,86 @@ def clean_wechat_article_url(url: str) -> str:
             return url
         query = parse_qs(parsed.query)
         # 移除容易触发风控检查或重定向验证码的冗余参数
+        # t=pages/image_detail 是图文详情页包装参数，保留会走验证码页
         drop_keys = {
             "scene", "subscene", "sessionid", "chksm", "sharer_shareid",
             "sharer_sharetime", "key", "pass_ticket", "uin", "devicetype",
             "version", "x5", "src", "asc", "clicktime", "enterid", "rd2exitd",
-            "item_show_type", "exportkey"
+            "item_show_type", "exportkey", "t", "from_masonry",
+            "sharer_shareinfo", "sharer_shareinfo_first", "wxtoken",
+            "exportkey", "acctmode", "ascene", "fasttmpl_type",
+            "fasttmpl_fullversion", "fasttmpl_flag",
         }
         clean_q = {k: v for k, v in query.items() if k not in drop_keys}
+        # 图文详情包装链：尽量收敛为标准 __biz+mid+idx+sn 文章链
+        path = parsed.path or "/s"
+        if path.startswith("/s") and any(k in clean_q for k in ("__biz", "mid", "sn")):
+            path = "/s"
+            keep = ("__biz", "mid", "idx", "sn")
+            clean_q = {k: clean_q[k] for k in keep if k in clean_q}
         fragment = "" if parsed.fragment == "wechat_redirect" else parsed.fragment
         return urlunparse((
             parsed.scheme or "https",
             parsed.netloc,
-            parsed.path,
+            path,
             "",
             urlencode(clean_q, doseq=True, safe="=:/%"),
             fragment
         ))
     except Exception:
         return url
+
+
+def resolve_review_id(url: str, review_id: str = "") -> str:
+    """解析微信读书 reviewId（短链/长链均可）。成功后可用于 /web/mp/content 免验证码拉正文。"""
+    if review_id and str(review_id).startswith("MP_WXS_"):
+        # 排除历史上错误拼的 MP_WXS_0_xxx
+        parts = str(review_id).split("_")
+        if len(parts) >= 4 and parts[2] != "0":
+            return str(review_id)
+        if len(parts) >= 4 and parts[2] == "0":
+            review_id = ""
+
+    url = normalize_wechat_short_url(url or "")
+    if not url:
+        return ""
+
+    # 短链可直接拼出旧式 reviewId：MP_WXS_{任意}_ {shortId}
+    # 仍优先走 getreviewid，拿带正确 book 前缀的 id
+    try:
+        from parse_tools.platforms.wechat.account_pool import borrow_weread_session, get_weread_session
+        _acc_id, _vid, _tok, h = borrow_weread_session()
+        s = get_weread_session()
+        # 短链、清洗后的 __biz 长链都试一遍
+        candidates = []
+        cleaned = clean_wechat_article_url(url)
+        for u in (url, cleaned):
+            if u and u not in candidates:
+                candidates.append(u)
+        res = s.post(
+            "https://i.weread.qq.com/mp/getreviewid",
+            json={"urls": candidates},
+            headers=h,
+            timeout=10,
+        ).json()
+        err = res.get("errcode") or res.get("errCode")
+        if err and err != 0:
+            logger.info("[WeRead] getreviewid err=%s body=%s", err, str(res)[:200])
+        for item in res.get("reviewIds", []) or []:
+            rid = item.get("reviewId") or ""
+            if rid.startswith("MP_WXS_") and "_0_" not in rid[:16]:
+                return rid
+            if rid.startswith("MP_WXS_"):
+                return rid
+    except Exception as e:
+        logger.info("[WeRead] getreviewid 异常: %s", e)
+
+    # 短链兜底：用路径 token 试拼（部分正文接口仍可用）
+    m = re.search(r"/s/([A-Za-z0-9_~-]{15,})", url)
+    if m:
+        sid = m.group(1).replace("~", "_")
+        return f"MP_WXS_0_{sid}"
+    return ""
 
 
 def resolve_canonical_short_url(url: str, review_id: str = "") -> str:
@@ -977,27 +1039,12 @@ def resolve_canonical_short_url(url: str, review_id: str = "") -> str:
         return _canonical_url_cache[cache_key]
 
     # 1. 从 review_id 的完整账号前缀后提取 short_id，保留下划线
-    sid = short_id_from_review_id(review_id)
-    if sid:
+    rid = review_id or resolve_review_id(url, review_id)
+    sid = short_id_from_review_id(rid)
+    if sid and not sid.startswith("WR"):  # WR… 长标识不能直接拼 /s/
         res = f"https://mp.weixin.qq.com/s/{sid}"
         _canonical_url_cache[cache_key] = res
         return res
-
-    # 2. 调用微信读书接口通过 URL 查询 reviewId
-    try:
-        from parse_tools.platforms.wechat.account_pool import borrow_weread_session, get_weread_session
-        acc_id, vid, tok, h = borrow_weread_session()
-        s = get_weread_session()
-        res = s.post("https://i.weread.qq.com/mp/getreviewid", json={"urls": [url]}, headers=h, timeout=6).json()
-        for item in res.get("reviewIds", []):
-            rid = item.get("reviewId", "")
-            sid = short_id_from_review_id(rid)
-            if sid:
-                resolved = f"https://mp.weixin.qq.com/s/{sid}"
-                _canonical_url_cache[cache_key] = resolved
-                return resolved
-    except Exception as e:
-        logger.debug(f"[ShortURL] 解析推文短链异常: {e}")
 
     _canonical_url_cache[cache_key] = url
     return url
@@ -1054,7 +1101,7 @@ def fetch_via_weread_content(review_id: str) -> tuple[str, bool]:
         return "", False
     try:
         from parse_tools.platforms.wechat.account_pool import borrow_weread_session, get_weread_session
-        acc_id, vid, tok, h = borrow_weread_session()
+        _acc_id, _vid, _tok, h = borrow_weread_session()
         s = get_weread_session()
         web_h = {
             "Cookie": h.get("Cookie", ""),
@@ -1068,14 +1115,26 @@ def fetch_via_weread_content(review_id: str) -> tuple[str, bool]:
             "https://weread.qq.com/web/mp/content",
             params={"reviewId": review_id},
             headers=web_h,
-            timeout=15,
+            timeout=20,
         )
         if resp.status_code == 200:
             html = resp.text
-            if 'id="js_content"' in html or 'class="rich_media_content"' in html:
+            # 图文/贴图可能没有 js_content，但有 picture_page_info_list
+            if (
+                'id="js_content"' in html
+                or 'id="js_article"' in html
+                or 'class="rich_media_content"' in html
+                or "picture_page_info_list" in html
+            ):
                 return html, True
+            logger.info(
+                "[WeRead Content] reviewId=%s 返回非正文页 len=%s head=%s",
+                review_id,
+                len(html),
+                html[:120].replace("\n", " "),
+            )
     except Exception as e:
-        logger.debug(f"[WeRead Content] 通过 review_id={review_id} 拉取全文失败: {e}")
+        logger.info("[WeRead Content] review_id=%s 拉取失败: %s", review_id, e)
     return "", False
 
 
@@ -1138,15 +1197,25 @@ def fetch_via_headless_browser(url: str, proxy_url: str = None) -> tuple[str, st
 
 
 def fetch_wechat_article_html(url: str, review_id: str = "") -> tuple[str, str, str]:
-    """多级抗风控综合抓取策略 (参考 rachelos/we-mp-rss 规范化与短链映射机制)：
-    1. 短链规范化转换 (通过 reviewId 或 WeRead 接口将长 __biz 链接映射为免验证码风控的标准短链)
-    2. 高仿真移动端微信 HTTP 请求 (携带 X-Requested-With、现代移动端 UA、清洗追踪参数)
-    3. WeRead Web 官方接口 (若有 reviewId，尝试拉取全文)
-    4. 无头 Chromium 渲染兜底 (当且仅当命中验证码或环境异常时自动接管)
+    """多级抗风控综合抓取策略：
+    1. 解析 reviewId，优先走微信读书 /web/mp/content（避开 mp 验证码）
+    2. 短链规范化后，高仿真移动端 HTTP 直抓
+    3. 无头浏览器兜底（验证码场景通常仍失败，仅作最后一搏）
 
     返回: (raw_html, final_url, error_message)
     """
     clean_orig_url = clean_wechat_article_url(url)
+    resolved_rid = resolve_review_id(clean_orig_url or url, review_id=review_id)
+    if resolved_rid:
+        review_id = resolved_rid
+
+    # ① 微信读书正文（短链几乎都能拿到 reviewId；可完整绕过 wappoc_appmsgcaptcha）
+    if review_id:
+        html, ok = fetch_via_weread_content(review_id)
+        if ok:
+            short = resolve_canonical_short_url(clean_orig_url or url, review_id=review_id)
+            return html, short or clean_orig_url, ""
+
     canonical_short_url = resolve_canonical_short_url(url, review_id=review_id)
     clean_short_url = clean_wechat_article_url(canonical_short_url)
 
@@ -1198,20 +1267,24 @@ def fetch_wechat_article_html(url: str, review_id: str = "") -> tuple[str, str, 
             http_error = str(e)
             report_proxy_status(proxy_url, success=False)
 
-    # 微信读书官方正文通道
-    if review_id:
-        html, ok = fetch_via_weread_content(review_id)
-        if ok:
-            return html, clean_orig_url, ""
-
-    # 无头浏览器渲染兜底
+    # ② 无头浏览器：验证码页通常仍过不了，只对非 captcha 错误尝试
     chosen_url = clean_short_url or clean_orig_url
-    logger.info(f"[Fetcher] HTTP 请求受限 ({http_error})，启用无头浏览器仿真兜底: {chosen_url}")
-    browser_html, browser_error = fetch_via_headless_browser(chosen_url, proxy_url=proxy_url)
-    if browser_html:
-        return browser_html, chosen_url, ""
+    if http_error and "验证码" not in str(http_error) and "wappoc" not in str(http_error):
+        logger.info(f"[Fetcher] HTTP 请求受限 ({http_error})，启用无头浏览器仿真兜底: {chosen_url}")
+        browser_html, browser_error = fetch_via_headless_browser(chosen_url, proxy_url=proxy_url)
+        if browser_html:
+            return browser_html, chosen_url, ""
+        http_error = http_error or browser_error
 
-    return "", clean_orig_url, http_error or browser_error or "抓取文章失败"
+    if "验证码" in str(http_error) or "wappoc" in str(http_error):
+        return "", clean_orig_url, (
+            "微信验证码拦截 (wappoc_appmsgcaptcha)。"
+            "请用微信打开文章 → 右上角 ··· → 复制链接，"
+            "粘贴 https://mp.weixin.qq.com/s/xxxxx 短链后再下载；"
+            "并确认「账号池」里微信读书已登录。"
+        )
+
+    return "", clean_orig_url, http_error or "抓取文章失败"
 
 
 def download_single_article(
@@ -1637,8 +1710,32 @@ def download_single_article(
         if nickname_match:
             source = unescape(nickname_match.group(1)).strip()
 
-    if not source or out_dir.name != "url_download":
+    # URL 批量下载时 out_dir 固定为 url_download：有公众号名则归到对应目录，避免
+    # 历史里显示「召唤师周报」但磁盘只有 url_download/第一篇，后几篇「找不到目录」。
+    if not source:
+        source = "链接下载" if out_dir.name == "url_download" else out_dir.name
+    elif out_dir.name != "url_download" and out_dir.name not in ("链接下载",):
+        # 账号主页批量下载：目录名即账号，保持一致
         source = out_dir.name
+
+    if out_dir.name == "url_download":
+        account_dir = out_dir.parent / sanitize(source)
+        account_dir.mkdir(parents=True, exist_ok=True)
+        dest_dir = account_dir / art_dir.name
+        if dest_dir.resolve() != art_dir.resolve():
+            if dest_dir.exists():
+                counter = 1
+                while (account_dir / f"{art_dir.name}_{counter}").exists():
+                    counter += 1
+                dest_dir = account_dir / f"{art_dir.name}_{counter}"
+            try:
+                shutil.move(str(art_dir), str(dest_dir))
+                art_dir = dest_dir
+            except Exception as move_err:
+                logger.warning("归位文章目录失败，保留在 url_download: %s", move_err)
+
+    # 目录可能已从 url_download 迁走，后续读写统一用新 art_dir
+    html_path = art_dir / f"{safe_title}.html"
 
     # 提取作者名字
     author = ""

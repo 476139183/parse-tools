@@ -361,10 +361,10 @@ const HistoryPage = {
             const data = await API.articles.history(999999);
             const history = data.history || [];
 
-            // 过滤成功且包含可用文件路径的条目，或者永久性失败的条目（比如作者已删除/内容被屏蔽/链接已过期）
-            this.items = history.filter(item => 
-                (item.success && item.path) || 
-                (!item.success && item.error && (item.error.includes("删除") || item.error.includes("屏蔽") || item.error.includes("过期")))
+            // 成功有路径的都展示；失败的也展示（含验证码/风控），避免批量下载后「历史只剩一篇」
+            this.items = history.filter(item =>
+                (item.success && item.path) ||
+                (!item.success && item.error)
             );
             
             // 按文章的发布时间（或下载时间）进行降序排序（最新发布的在前）

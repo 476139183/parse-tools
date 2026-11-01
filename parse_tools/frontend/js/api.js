@@ -198,7 +198,10 @@ const API = {
         auth: {
             start: () => API.post('/api/kuaishou/auth/start'),
             cancel: () => API.post('/api/kuaishou/auth/cancel'),
-            status: () => API.get('/api/kuaishou/auth/status', { showError: false })
+            status: () => API.get('/api/kuaishou/auth/status', { showError: false }),
+            captureCookie: () => API.post('/api/kuaishou/auth/capture-cookie'),
+            captureCookieStatus: () => API.get('/api/kuaishou/auth/capture-cookie-status', { showError: false }),
+            captureCookieCancel: () => API.post('/api/kuaishou/auth/capture-cookie-cancel'),
         },
         parseSingle(url) { return API.post('/api/kuaishou/parse-single', { url }); },
         downloadSingle(payload) {
@@ -206,6 +209,8 @@ const API = {
             return API.post('/api/kuaishou/download-single', { item: payload });
         },
         userFeed(url, pcursor) { return API.post('/api/kuaishou/user-feed', { url, pcursor }); },
+        likedFeed(pcursor) { return API.post('/api/kuaishou/liked', { pcursor }); },
+        collectedFeed(pcursor) { return API.post('/api/kuaishou/collected', { pcursor }); },
         downloadSelected(items) { return API.post('/api/kuaishou/download-selected', { items }); },
         downloadProfile(url, max_pages) { return API.post('/api/kuaishou/download-profile', { url, max_pages }); },
         cancelDownload() { return API.post('/api/kuaishou/cancel-download'); },

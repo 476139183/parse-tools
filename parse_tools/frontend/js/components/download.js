@@ -12,17 +12,18 @@ const DownloadPage = {
                 <p class="page-description">输入微信公众号文章 URL，直接下载文章内容（含图片和视频）</p>
             </div>
 
-            <div class="card" style="margin-bottom: var(--spacing-lg);">
+            <div class="card" style="margin-bottom: var(--spacing-md);">
                 <div class="card-header">
                     <h3 class="card-title">🔗 输入文章网址</h3>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">文章 URL（每行一个，支持批量下载）</label>
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label class="form-label">文章 URL（每行一个，支持批量）</label>
                     <textarea class="form-textarea" id="url-input"
-                              placeholder="https://mp.weixin.qq.com/s/xxxxxx&#10;https://mp.weixin.qq.com/s/yyyyyy&#10;&#10;每行输入一个微信文章链接..."
-                              rows="6"></textarea>
-                    <div class="form-hint">支持 mp.weixin.qq.com 格式的文章链接，每行一个</div>
+                              placeholder="https://mp.weixin.qq.com/s/xxxxxx&#10;每行一个短链…"
+                              rows="3"
+                              style="min-height: 72px; max-height: 140px; resize: vertical;"></textarea>
+                    <div class="form-hint">优先粘贴微信「复制链接」的短链；长链易触发验证码</div>
                 </div>
 
                 <div class="btn-group">
@@ -38,54 +39,59 @@ const DownloadPage = {
                 </div>
             </div>
 
-            <!-- 内容过滤 -->
-            <div class="card" style="margin-bottom: var(--spacing-lg);">
-                <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
-                    <h3 class="card-title">🧹 内容过滤</h3>
-                    <span class="badge" id="cf-badge">加载中</span>
-                </div>
+            <!-- 内容过滤：默认折叠，避免挤占首屏 -->
+            <details class="card" style="margin-bottom: var(--spacing-md); padding: 0;">
+                <summary class="card-header" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; padding: 14px 16px; user-select: none;">
+                    <h3 class="card-title" style="margin: 0;">🧹 内容过滤（可选）</h3>
+                    <span style="display: flex; align-items: center; gap: 8px;">
+                        <span class="badge" id="cf-badge">加载中</span>
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">展开设置</span>
+                    </span>
+                </summary>
 
-                <div class="switch-group">
-                    <div class="switch-label">
-                        <span class="label-title">下载时自动过滤</span>
-                        <span class="label-desc">去掉广告块、二维码，以及被当作小节标题的横幅图片</span>
+                <div style="padding: 0 16px 16px;">
+                    <div class="switch-group">
+                        <div class="switch-label">
+                            <span class="label-title">下载时自动过滤</span>
+                            <span class="label-desc">去掉广告块、二维码，以及被当作小节标题的横幅图片</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="cf-enabled">
+                            <span class="switch-slider"></span>
+                        </label>
                     </div>
-                    <label class="switch">
-                        <input type="checkbox" id="cf-enabled">
-                        <span class="switch-slider"></span>
-                    </label>
-                </div>
 
-                <div class="grid grid-2" style="gap: 12px;">
+                    <div class="grid grid-2" style="gap: 12px;">
+                        <div class="form-group">
+                            <label class="form-label" for="cf-ratio">横幅图宽高比阈值</label>
+                            <input type="number" class="form-input" id="cf-ratio" step="0.01" min="0.05" max="0.9">
+                            <div class="form-hint">小节标题图通常 0.1~0.2，正文配图 ≥0.5</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="cf-min-width">最小宽度 (px)</label>
+                            <input type="number" class="form-input" id="cf-min-width" step="50" min="0">
+                            <div class="form-hint">宽度达到该值的图才会被判为横幅</div>
+                        </div>
+                    </div>
+
                     <div class="form-group">
-                        <label class="form-label" for="cf-ratio">横幅图宽高比阈值</label>
-                        <input type="number" class="form-input" id="cf-ratio" step="0.01" min="0.05" max="0.9">
-                        <div class="form-hint">微信图片 data-ratio = 高/宽；小节标题图通常 0.1~0.2，正文配图 ≥0.5</div>
+                        <label class="form-label" for="cf-img-kw">图片关键词</label>
+                        <input type="text" class="form-input" id="cf-img-kw" placeholder="分割线、二维码、扫码">
+                        <div class="form-hint">alt / title / 文件名命中即删，逗号分隔</div>
                     </div>
+
                     <div class="form-group">
-                        <label class="form-label" for="cf-min-width">最小宽度 (px)</label>
-                        <input type="number" class="form-input" id="cf-min-width" step="50" min="0">
-                        <div class="form-hint">宽度达到该值的图才会被判为横幅</div>
+                        <label class="form-label" for="cf-text-kw">文本关键词</label>
+                        <input type="text" class="form-input" id="cf-text-kw" placeholder="点击上方蓝字、扫码关注">
+                        <div class="form-hint">短段落命中即删，逗号分隔</div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="DownloadPage.saveContentFilter()">保存过滤设置</button>
+                        <button class="btn btn-secondary" onclick="DownloadPage.applyFilterToExisting()">应用到已下载文章</button>
                     </div>
                 </div>
-
-                <div class="form-group">
-                    <label class="form-label" for="cf-img-kw">图片关键词</label>
-                    <input type="text" class="form-input" id="cf-img-kw" placeholder="分割线、二维码、扫码">
-                    <div class="form-hint">图片的 alt / title / 文件名命中任一词即删除，逗号分隔</div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label" for="cf-text-kw">文本关键词</label>
-                    <input type="text" class="form-input" id="cf-text-kw" placeholder="点击上方蓝字、扫码关注">
-                    <div class="form-hint">200 字以内的短段落命中任一词即删除，逗号分隔</div>
-                </div>
-
-                <div class="btn-group">
-                    <button class="btn btn-primary" onclick="DownloadPage.saveContentFilter()">保存过滤设置</button>
-                    <button class="btn btn-secondary" onclick="DownloadPage.applyFilterToExisting()">应用到已下载文章</button>
-                </div>
-            </div>
+            </details>
 
             <!-- 下载进度 -->
             <div id="url-download-progress" style="display: none;">
@@ -114,8 +120,9 @@ const DownloadPage = {
                         <span>总计: <strong id="url-download-total">0</strong></span>
                     </div>
                     <div id="url-download-note" style="margin-top: 12px; color: var(--text-muted); font-size: 0.85rem;">
-                        下载完成后可在“下载历史”中查看文件列表。
+                        下载完成后可在“下载历史”中查看文件列表。每篇文章会保存到对应公众号目录下。
                     </div>
+                    <div id="url-download-results" style="margin-top: 12px; display: none;"></div>
                 </div>
             </div>
         `;
@@ -343,9 +350,34 @@ const DownloadPage = {
         }
 
         const note = document.getElementById('url-download-note');
-        if (note && task.status === 'completed') {
-            note.innerHTML = '下载完成。请到 <a href="#history" style="color: var(--primary); text-decoration: none;">下载历史</a> 查看文件列表。';
+        if (note && (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')) {
+            note.innerHTML = '下载结束。请到 <a href="#history" style="color: var(--primary); text-decoration: none;">下载历史</a> 查看；成功的文章在对应公众号目录下。';
         }
+        this.renderResults(task);
+    },
+
+    renderResults(task) {
+        const box = document.getElementById('url-download-results');
+        if (!box) return;
+        const results = Array.isArray(task.results) ? task.results : [];
+        if (!results.length) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+        }
+        const rows = results.map((r, i) => {
+            const ok = !!r.success;
+            const title = (r.title || `文章 ${i + 1}`).replace(/[<>&]/g, '');
+            const detail = ok
+                ? (r.path ? `目录：${String(r.path).replace(/[<>&]/g, '')}` : '已保存')
+                : (`失败：${(r.error || '未知错误').replace(/[<>&]/g, '')}`);
+            return `<div style="padding: 8px 10px; border-radius: 8px; margin-bottom: 6px; background: ${ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; font-size: 0.85rem; color: var(--text-primary);">
+                <strong>${ok ? '✓' : '✗'} ${title}</strong>
+                <div style="margin-top: 4px; color: var(--text-muted); word-break: break-all;">${detail}</div>
+            </div>`;
+        }).join('');
+        box.style.display = 'block';
+        box.innerHTML = `<div style="font-weight: 600; margin-bottom: 8px;">逐条结果</div>${rows}`;
     },
 
     clearInput() {
@@ -364,7 +396,8 @@ const DownloadPage = {
 
     async openFolder() {
         try {
-            await API.articles.openFolder('url_download');
+            // 打开下载根目录：多链接会按公众号分子目录，不再只开 url_download
+            await API.articles.openFolder('');
             Toast.success('下载目录已打开');
         } catch (err) {
             // shown by API

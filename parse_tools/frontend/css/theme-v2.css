@@ -372,19 +372,19 @@ td {
 
 /* Keep Signal Desk shell even when platform themes flip body vars */
 body.dy-theme .sidebar,
-body.wechat-theme .sidebar {
+body.wechat-theme .sidebar,
+body.dy-theme .platform-sidebar,
+body.wechat-theme .platform-sidebar {
     background: var(--ink) !important;
     border-right-color: rgba(255, 255, 255, 0.06) !important;
 }
-/* 顶栏品牌在浅色底上，禁止被平台主题刷成白色/透明字 */
-body.dy-theme .brand-block .logo-text h1,
-body.wechat-theme .brand-block .logo-text h1,
-.brand-block .logo-text h1 {
-    color: var(--ink) !important;
-    -webkit-text-fill-color: var(--ink) !important;
+/* 左侧栏品牌保持白字；勿被浅色主题规则覆盖 */
+.platform-sidebar .brand-block .logo-text h1,
+body.dy-theme .platform-sidebar .brand-block .logo-text h1,
+body.wechat-theme .platform-sidebar .brand-block .logo-text h1 {
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
     background: none !important;
-    -webkit-background-clip: initial !important;
-    background-clip: initial !important;
 }
 body.dy-theme .nav-item,
 body.wechat-theme .nav-item {
@@ -411,24 +411,144 @@ body.dy-theme { --primary: #e11d48; --primary-light: #fb7185; --text-accent: #e1
 body.wechat-theme { --primary: #0f766e; --primary-light: #14b8a6; --text-accent: #0f766e; }
 
 /* ============================================================
-   Shell layout — hero + platform rail + context + workspace
+   Shell layout — 左侧平台栏（快手网页风格）+ 右侧工作区
    ============================================================ */
 
 #app.shell {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
-    grid-template-columns: 1fr;
+    grid-template-columns: var(--platform-sidebar-width, 200px) minmax(0, 1fr);
+    grid-template-rows: 100%;
     height: 100vh;
     width: 100vw;
+    overflow: hidden;
+    --platform-sidebar-width: 200px;
+    transition: grid-template-columns 0.22s ease;
+}
+#app.shell.sidebar-collapsed {
+    --platform-sidebar-width: 64px;
+}
+
+.platform-sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+    background: var(--ink);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    z-index: 6;
+    overflow: hidden;
+}
+
+.platform-sidebar .brand-block {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 18px 12px 14px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+}
+.platform-sidebar .brand-block .logo { gap: 12px; min-width: 0; }
+.platform-sidebar .brand-block .logo-icon {
+    background: var(--teal);
+    color: #fff;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    flex-shrink: 0;
+}
+.platform-sidebar .brand-block .logo-text h1 {
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
+    background: none !important;
+    font-size: 1.15rem;
+    letter-spacing: -0.04em;
+}
+.platform-sidebar .brand-block .logo-subtitle {
+    color: rgba(204, 251, 241, 0.65);
+    font-size: 0.62rem;
+}
+
+.sidebar-toggle {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.75);
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.22s ease;
+}
+.sidebar-toggle:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+#app.shell.sidebar-collapsed .sidebar-toggle {
+    transform: rotate(180deg);
+}
+#app.shell.sidebar-collapsed .platform-sidebar .brand-block {
+    flex-direction: column;
+    align-items: center;
+    padding: 14px 8px 12px;
+}
+#app.shell.sidebar-collapsed .platform-sidebar .brand-block .logo-text,
+#app.shell.sidebar-collapsed .platform-sidebar-foot {
+    display: none;
+}
+#app.shell.sidebar-collapsed .platform-chip .chip-label {
+    display: none;
+}
+#app.shell.sidebar-collapsed .platform-chip::before {
+    content: attr(data-short);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+#app.shell.sidebar-collapsed .platform-chip {
+    text-align: center;
+    padding: 11px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#app.shell.sidebar-collapsed .platform-rail {
+    padding: 10px 6px;
+}
+
+.platform-sidebar-foot {
+    margin-top: auto;
+    padding: 14px 16px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.45);
+}
+.platform-sidebar-foot a {
+    color: var(--teal-bright);
+    text-decoration: none;
+}
+.platform-sidebar-foot a:hover { opacity: 0.85; }
+
+.shell-column {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
     overflow: hidden;
 }
 
 .shell-top {
     display: grid;
-    grid-template-columns: minmax(200px, 280px) minmax(280px, 1fr) minmax(180px, 280px);
-    gap: 20px 28px;
+    grid-template-columns: minmax(280px, 1fr) auto;
+    gap: 16px 24px;
     align-items: end;
-    padding: 22px 28px 18px;
+    padding: 16px 24px 14px;
     background:
         linear-gradient(180deg, rgba(255,255,255,0.72), rgba(238,243,246,0.35));
     border-bottom: 1px solid var(--line);
@@ -517,35 +637,44 @@ body.wechat-theme { --primary: #0f766e; --primary-light: #14b8a6; --text-accent:
 
 .platform-rail {
     display: flex;
-    gap: 8px;
-    padding: 12px 28px;
-    overflow-x: auto;
-    border-bottom: 1px solid var(--line);
-    background: rgba(255,255,255,0.45);
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 10px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    background: transparent;
+    border-bottom: none;
 }
 .platform-chip {
     appearance: none;
-    border: 1px solid var(--line);
-    background: var(--surface);
-    color: var(--ink-soft);
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
     font-family: var(--font-display);
     font-weight: 600;
     font-size: 0.92rem;
     letter-spacing: -0.02em;
-    padding: 10px 16px;
-    border-radius: 999px;
+    padding: 11px 14px;
+    border-radius: 10px;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease;
     white-space: nowrap;
+    text-align: left;
+    width: 100%;
 }
 .platform-chip:hover {
-    border-color: var(--line-strong);
-    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    transform: none;
+    border-color: transparent;
 }
 .platform-chip.active {
-    background: var(--ink);
-    color: #fff;
-    border-color: var(--ink);
+    background: rgba(20, 184, 166, 0.16);
+    color: #ccfbf1;
+    border-color: transparent;
+    box-shadow: inset 3px 0 0 var(--teal-bright);
 }
 
 .shell-workspace {
@@ -578,13 +707,13 @@ body.wechat-theme { --primary: #0f766e; --primary-light: #14b8a6; --text-accent:
     display: none !important; /* platform rail replaces accordion headers */
 }
 .shell .context-rail .nav-group-items {
-    display: none;
+    display: none !important;
     flex-direction: row;
     flex-wrap: wrap;
     gap: 8px;
 }
-.shell .context-rail .nav-group-items:not(.collapsed) {
-    display: flex;
+.shell .context-rail .nav-group-items:not(.collapsed):not([hidden]) {
+    display: flex !important;
 }
 .shell .context-rail .nav-item {
     color: var(--ink-soft) !important;
@@ -639,10 +768,63 @@ body.wechat-theme { --primary: #0f766e; --primary-light: #14b8a6; --text-accent:
 }
 
 @media (max-width: 980px) {
+    #app.shell:not(.sidebar-collapsed) {
+        --platform-sidebar-width: 160px;
+    }
+    .platform-sidebar .brand-block .logo-subtitle {
+        display: none;
+    }
     .shell-top {
         grid-template-columns: 1fr;
         align-items: start;
         gap: 14px;
     }
     .shell-meta { justify-content: flex-start; }
+}
+
+@media (max-width: 720px) {
+    #app.shell,
+    #app.shell.sidebar-collapsed {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr);
+        --platform-sidebar-width: 100%;
+    }
+    .platform-sidebar {
+        flex-direction: row;
+        align-items: center;
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        overflow-x: auto;
+    }
+    .platform-sidebar .brand-block {
+        display: none !important;
+    }
+    .platform-sidebar-foot {
+        display: none !important;
+    }
+    .platform-rail {
+        flex-direction: row;
+        padding: 10px 12px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        flex: 1;
+    }
+    .platform-chip {
+        width: auto;
+        flex-shrink: 0;
+        padding: 8px 14px;
+        border-radius: 999px;
+        box-shadow: none;
+        display: inline-flex;
+    }
+    #app.shell.sidebar-collapsed .platform-chip .chip-label {
+        display: inline;
+    }
+    #app.shell.sidebar-collapsed .platform-chip::before {
+        content: none;
+    }
+    .platform-chip.active {
+        background: rgba(20, 184, 166, 0.22);
+        box-shadow: none;
+    }
 }

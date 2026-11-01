@@ -34,6 +34,7 @@ window.PageRegistry = (function () {
         { key: 'ks_login', group: 'kuaishou', get: () => typeof KsLoginComponent !== 'undefined' ? KsLoginComponent : null },
         { key: 'ks_accounts', group: 'kuaishou', get: () => typeof KsAccountsPage !== 'undefined' ? KsAccountsPage : null },
         { key: 'ks_user', group: 'kuaishou', get: () => typeof KsUserPage !== 'undefined' ? KsUserPage : null },
+        { key: 'ks_mine', group: 'kuaishou', get: () => typeof KsMinePage !== 'undefined' ? KsMinePage : null },
         { key: 'ks_parse', group: 'kuaishou', get: () => typeof KsParsePage !== 'undefined' ? KsParsePage : null },
         { key: 'ks_downloads', group: 'kuaishou', get: () => typeof KsDownloadsPage !== 'undefined' ? KsDownloadsPage : null },
 

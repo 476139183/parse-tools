@@ -19,10 +19,11 @@
 </head>
 <body>
     <div id="app" class="shell">
-        <header class="shell-top">
+        <!-- 左侧：平台列表（对齐快手网页版竖栏） -->
+        <aside class="platform-sidebar" id="platform-sidebar" aria-label="平台导航">
             <div class="brand-block">
                 <div class="logo">
-                    <div class="logo-icon" aria-hidden="true">
+                    <div class="logo-icon" aria-hidden="true" title="Parse Tools">
                         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M4 7h16M4 12h10M4 17h13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
                         </svg>
@@ -32,8 +33,36 @@
                         <span class="logo-subtitle">Parse · Download · Archive</span>
                     </div>
                 </div>
+                <button type="button" class="sidebar-toggle" id="btn-sidebar-toggle" title="收起侧栏" aria-label="展开或收起侧栏" aria-expanded="true">
+                    <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" fill="none" width="16" height="16" aria-hidden="true">
+                        <path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
             </div>
 
+            <nav class="platform-rail" id="platform-rail" aria-label="平台">
+                <button type="button" class="platform-chip active" data-group="wechat" data-short="公" title="公众号"><span class="chip-label">公众号</span></button>
+                <button type="button" class="platform-chip" data-group="wechat_channels" data-short="视" title="视频号"><span class="chip-label">视频号</span></button>
+                <button type="button" class="platform-chip" data-group="douyin" data-short="抖" title="抖音"><span class="chip-label">抖音</span></button>
+                <button type="button" class="platform-chip" data-group="kuaishou" data-short="快" title="快手"><span class="chip-label">快手</span></button>
+                <button type="button" class="platform-chip" data-group="xiaohongshu" data-short="书" title="小红书"><span class="chip-label">小红书</span></button>
+                <button type="button" class="platform-chip" data-group="bilibili" data-short="B" title="哔哩哔哩"><span class="chip-label">哔哩哔哩</span></button>
+                <button type="button" class="platform-chip" data-group="weibo" data-short="微" title="微博"><span class="chip-label">微博</span></button>
+                <button type="button" class="platform-chip" data-group="alipay" data-short="支" title="支付宝"><span class="chip-label">支付宝</span></button>
+                <button type="button" class="platform-chip" data-group="common" data-short="工" title="工具"><span class="chip-label">工具</span></button>
+            </nav>
+
+            <div class="platform-sidebar-foot">
+                <div id="version-display" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="App.showUpdateModal()">
+                    <span id="version-text">v3.0.0</span>
+                    <span id="update-dot" style="display: none; width: 7px; height: 7px; background: #ff3b30; border-radius: 50%;"></span>
+                </div>
+                <a href="javascript:void(0)" onclick="App.showDisclaimer()">免责声明</a>
+            </div>
+        </aside>
+
+        <div class="shell-column">
+        <header class="shell-top">
             <div class="quick-parse" role="search">
                 <label class="quick-parse-label" for="quick-parse-input">一键解析</label>
                 <div class="quick-parse-row">
@@ -44,7 +73,6 @@
             </div>
 
             <div class="shell-meta" id="shell-meta">
-                
                 <div class="user-status" id="user-status" style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 0.75rem; color: var(--text-muted); width: 32px;">微信:</span>
                     <div class="status-dot offline" id="status-indicator"></div>
@@ -65,31 +93,8 @@
                     <div class="status-dot warning" id="bili-status-indicator" style="box-shadow: none;"></div>
                     <span class="status-text" id="bili-status-text" style="font-size: 0.8rem;">需要登录</span>
                 </div>
-                <div class="sidebar-about" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 0.75rem; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px;">
-                    <div id="version-display" style="cursor: pointer; position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" onclick="App.showUpdateModal()">
-                        <span id="version-text">Parse Tools v3.0.0</span>
-                        <span id="update-dot" style="display: none; width: 8px; height: 8px; background: #ff3b30; border-radius: 50%; animation: pulse-dot 2s ease-in-out infinite;"></span>
-                    </div>
-                    <div style="display: flex; justify-content: center; gap: 12px;">
-                        <a href="#" id="about-repo-link" style="color: var(--primary); text-decoration: none;">Parse Tools</a>
-                        <a href="javascript:void(0)" onclick="App.showDisclaimer()" style="color: var(--primary); text-decoration: none;">免责声明</a>
-                    </div>
-                </div>
-            
             </div>
         </header>
-
-        <nav class="platform-rail" id="platform-rail" aria-label="平台">
-            <button type="button" class="platform-chip active" data-group="wechat">公众号</button>
-            <button type="button" class="platform-chip" data-group="wechat_channels">视频号</button>
-            <button type="button" class="platform-chip" data-group="douyin">抖音</button>
-            <button type="button" class="platform-chip" data-group="kuaishou">快手</button>
-            <button type="button" class="platform-chip" data-group="xiaohongshu">小红书</button>
-            <button type="button" class="platform-chip" data-group="bilibili">哔哩哔哩</button>
-            <button type="button" class="platform-chip" data-group="weibo">微博</button>
-            <button type="button" class="platform-chip" data-group="alipay">支付宝</button>
-            <button type="button" class="platform-chip" data-group="common">工具</button>
-        </nav>
 
         <div class="shell-workspace">
             <aside class="sidebar context-rail" id="sidebar">
@@ -255,6 +260,12 @@
                             <svg viewBox="0 0 24 24" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
                         </span>
                         <span class="nav-label">用户主页</span>
+                    </a>
+                    <a href="#ks_mine" class="nav-item" data-page="ks_mine" id="nav-ks_mine">
+                        <span class="nav-icon">
+                            <svg viewBox="0 0 24 24" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </span>
+                        <span class="nav-label">点赞/收藏</span>
                     </a>
                     <a href="#ks_accounts" class="nav-item" data-page="ks_accounts" id="nav-ks_accounts">
                         <span class="nav-icon">
@@ -444,6 +455,7 @@
         
             </main>
         </div>
+        </div>
     </div>
 
     <!-- Toast 容器 -->
@@ -489,6 +501,7 @@
     <script src="/js/components/kuaishou/ks_login.js"></script>
     <script src="/js/components/kuaishou/ks_accounts.js"></script>
     <script src="/js/components/kuaishou/ks_user.js"></script>
+    <script src="/js/components/kuaishou/ks_mine.js"></script>
     <script src="/js/components/kuaishou/ks_parse.js"></script>
     <script src="/js/components/kuaishou/ks_downloads.js"></script>
 
